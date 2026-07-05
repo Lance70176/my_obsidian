@@ -3,6 +3,9 @@ const path = require('path');
 
 let mainWindow = null;
 
+// Isolated profile for automated tests (test/e2e.js).
+if (process.env.MYOB_USER_DATA) app.setPath('userData', process.env.MYOB_USER_DATA);
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1320,

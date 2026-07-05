@@ -34,7 +34,13 @@ let previewTimer = null;
 
 /* ---------------- modal helpers ---------------- */
 
+let modalOpen = false;
+
 function modal({ title, message = '', input = null, okLabel = '確定', danger = false }) {
+  // A second modal while one is open would steal the first one's button
+  // handlers and leave it unresponsive — refuse instead.
+  if (modalOpen) return Promise.resolve(null);
+  modalOpen = true;
   return new Promise((resolve) => {
     const overlay = $('modal-overlay');
     const inputEl = $('modal-input');
@@ -56,6 +62,7 @@ function modal({ title, message = '', input = null, okLabel = '確定', danger =
     }
     function close(result) {
       overlay.hidden = true;
+      modalOpen = false;
       ok.onclick = $('modal-cancel').onclick = inputEl.onkeydown = overlay.onclick = null;
       resolve(result);
     }
@@ -220,8 +227,12 @@ async function createNote(folderRel = '') {
   const name = await promptModal('新筆記名稱', '未命名筆記');
   if (!name) return;
   const dir = path.join(state.vault, ...folderRel.split('/').filter(Boolean));
+  // The name may contain "/" (create in a subfolder); keep the result inside the vault.
   const file = uniquePath(dir, name.replace(/\.md$/i, ''), '.md');
-  fs.mkdirSync(dir, { recursive: true });
+  if (!path.resolve(file).startsWith(path.resolve(state.vault) + path.sep)) {
+    return modal({ title: '無法建立', message: '筆記必須位於 Vault 資料夾內。', okLabel: '知道了' });
+  }
+  fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, `# ${path.basename(file, '.md')}\n\n`);
   refreshTree();
   openFile(file);
@@ -496,3 +507,6 @@ setMode(state.mode);
 showEmpty(false);
 const lastVault = localStorage.getItem('lastVault');
 if (lastVault && fs.existsSync(lastVault)) loadVault(lastVault);
+
+// Automation hook for test/e2e.js.
+window.__myob = { state, loadVault, openFile, setMode, refreshTree };

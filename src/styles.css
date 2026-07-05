@@ -13,6 +13,9 @@
 
 * { box-sizing: border-box; }
 
+/* The hidden attribute must always win over any CSS display value below. */
+[hidden] { display: none !important; }
+
 html, body {
   margin: 0;
   height: 100%;

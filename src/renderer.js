@@ -1,8 +1,10 @@
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { ipcRenderer } = require('electron');
 const { createRenderer } = require('../lib/markdown');
 const { exportNote, exportVault, walkVault, buildNoteIndex } = require('../lib/exporter');
+const { collectClaudeMemory } = require('../lib/claude-sync');
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -92,6 +94,7 @@ function loadVault(dir) {
   els.vaultName.textContent = path.basename(dir);
   document.title = `my_obsidian — ${path.basename(dir)}`;
   refreshTree();
+  syncClaudeMemory(true);
   const lastFile = localStorage.getItem('lastFile');
   if (lastFile && lastFile.startsWith(dir + path.sep) && fs.existsSync(lastFile)) {
     openFile(lastFile);
@@ -429,6 +432,34 @@ async function exportVaultFlow() {
   }
 }
 
+/* ---------------- Claude Code memory sync ---------------- */
+
+function claudeSyncNotePath() {
+  const hostname = os.hostname().replace(/\.local$/i, '');
+  return path.join(state.vault, 'Claude 記憶', `Claude Code 記憶（${hostname}）.md`);
+}
+
+// Aggregate ~/.claude memory into one vault note. Manual click always writes
+// and opens the note; the automatic pass on vault load only refreshes it if
+// the user has created it before (opt-in).
+function syncClaudeMemory(auto = false) {
+  if (!state.vault) return;
+  const noteFile = claudeSyncNotePath();
+  if (auto && !fs.existsSync(noteFile)) return;
+  try {
+    const { markdown, projects, entries } = collectClaudeMemory();
+    fs.mkdirSync(path.dirname(noteFile), { recursive: true });
+    fs.writeFileSync(noteFile, markdown);
+    refreshTree();
+    if (!auto) {
+      openFile(noteFile);
+      els.statusSave.textContent = `✓ 已同步 ${projects} 個專案、${entries} 則記憶`;
+    }
+  } catch (err) {
+    if (!auto) modal({ title: 'Claude 記憶同步失敗', message: String(err.message || err), okLabel: '知道了' });
+  }
+}
+
 /* ---------------- mode / events ---------------- */
 
 function setMode(mode) {
@@ -479,6 +510,7 @@ $('btn-open-vault-2').onclick = openVaultDialog;
 $('btn-new-note').onclick = () => createNote(currentFolderRel());
 $('btn-export-note').onclick = () => exportNoteFlow(state.file);
 $('btn-export-vault').onclick = exportVaultFlow;
+$('btn-claude-sync').onclick = () => syncClaudeMemory(false);
 for (const btn of document.querySelectorAll('#mode-group button')) {
   btn.onclick = () => setMode(btn.dataset.mode);
 }

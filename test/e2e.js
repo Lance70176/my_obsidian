@@ -23,9 +23,16 @@ async function step(name, fn) {
   const exportDir = path.join(tmp, 'site');
   const exportFile = path.join(tmp, 'single.html');
 
+  // Fake ~/.claude with one project memory for the Claude-sync step.
+  const claudeDir = path.join(tmp, 'claude');
+  const memDir = path.join(claudeDir, 'projects', '-Users-test-projects-demo', 'memory');
+  fs.mkdirSync(memDir, { recursive: true });
+  fs.writeFileSync(path.join(memDir, 'MEMORY.md'), '- [重要決定](x.md) — E2E 測試用記憶重點\n');
+  fs.writeFileSync(path.join(memDir, 'x.md'), 'x');
+
   const app = await electron.launch({
     args: [ROOT],
-    env: { ...process.env, MYOB_USER_DATA: path.join(tmp, 'userdata') }
+    env: { ...process.env, MYOB_USER_DATA: path.join(tmp, 'userdata'), MYOB_CLAUDE_DIR: claudeDir }
   });
   const win = await app.firstWindow();
   await win.waitForLoadState('domcontentloaded');
@@ -163,6 +170,17 @@ async function step(name, fn) {
       await win.click('#modal-cancel');
       assert.ok(fs.existsSync(path.join(exportDir, 'index.html')));
       assert.ok(fs.existsSync(path.join(exportDir, '教學', '匯出說明.html')));
+    });
+
+    await step('「🧠 Claude 記憶」把記憶彙整成一份筆記並開啟', async () => {
+      await win.click('#btn-claude-sync');
+      await win.waitForFunction(() => document.querySelector('#editor').value.includes('Claude Code 記憶總覽'));
+      const noteDir = path.join(vault, 'Claude 記憶');
+      const notes = fs.readdirSync(noteDir);
+      assert.strictEqual(notes.length, 1);
+      const content = fs.readFileSync(path.join(noteDir, notes[0]), 'utf8');
+      assert.ok(content.includes('E2E 測試用記憶重點'));
+      assert.ok(content.includes('### demo（1 則）'));
     });
 
     console.log(`\n${passed} E2E steps passed ✅`);

@@ -1,14 +1,14 @@
 {
   "name": "my_obsidian",
-  "version": "1.0.0",
-  "main": "index.js",
+  "version": "0.1.0",
+  "description": "A local Markdown knowledge base app: edit, preview, and export Markdown to standalone HTML.",
+  "main": "main.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "electron .",
+    "test": "node test/test-markdown.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "description": "",
+  "author": "lujianzhou",
+  "license": "MIT",
   "dependencies": {
     "highlight.js": "^11.11.1",
     "marked": "^18.0.5"

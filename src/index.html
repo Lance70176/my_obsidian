@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <title>my_obsidian</title>
+  <link rel="stylesheet" href="../node_modules/highlight.js/styles/github-dark.min.css">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="titlebar">
+    <span id="app-title">my_obsidian</span>
+    <div id="toolbar">
+      <button id="btn-open-vault" title="開啟 Vault 資料夾">📂 開啟 Vault</button>
+      <button id="btn-new-note" title="新增筆記 (⌘N)">＋ 新筆記</button>
+      <span class="toolbar-sep"></span>
+      <div id="mode-group">
+        <button id="btn-mode-edit" data-mode="edit" title="編輯模式 (⌘1)">編輯</button>
+        <button id="btn-mode-split" data-mode="split" title="分割模式 (⌘2)">分割</button>
+        <button id="btn-mode-preview" data-mode="preview" title="預覽模式 (⌘3)">預覽</button>
+      </div>
+      <span class="toolbar-sep"></span>
+      <button id="btn-export-note" title="將目前筆記匯出成獨立 HTML">⬇ 匯出 HTML</button>
+      <button id="btn-export-vault" title="將整個 Vault 匯出成 HTML 網站">⬇ 匯出 Vault</button>
+    </div>
+  </div>
+
+  <div id="app">
+    <aside id="sidebar">
+      <div id="vault-header">
+        <span id="vault-name">尚未開啟 Vault</span>
+      </div>
+      <input id="tree-filter" type="text" placeholder="搜尋筆記…" spellcheck="false">
+      <div id="file-tree"></div>
+    </aside>
+    <div id="sidebar-resizer"></div>
+    <main id="main">
+      <div id="empty-state">
+        <div class="empty-inner">
+          <h2>my_obsidian</h2>
+          <p>開啟一個 Vault 資料夾開始編輯 Markdown 筆記。</p>
+          <button id="btn-open-vault-2">📂 開啟 Vault</button>
+        </div>
+      </div>
+      <section id="editor-pane" hidden>
+        <textarea id="editor" spellcheck="false" placeholder="# 開始書寫…"></textarea>
+      </section>
+      <section id="preview-pane" hidden>
+        <article id="preview" class="markdown-body"></article>
+      </section>
+    </main>
+  </div>
+
+  <div id="statusbar">
+    <span id="status-file">—</span>
+    <span id="status-right">
+      <span id="status-count"></span>
+      <span id="status-save"></span>
+    </span>
+  </div>
+
+  <div id="modal-overlay" hidden>
+    <div id="modal">
+      <div id="modal-title"></div>
+      <input id="modal-input" type="text" spellcheck="false">
+      <div id="modal-msg"></div>
+      <div id="modal-buttons">
+        <button id="modal-cancel">取消</button>
+        <button id="modal-ok" class="primary">確定</button>
+      </div>
+    </div>
+  </div>
+
+  <ul id="context-menu" hidden></ul>
+
+  <script src="renderer.js"></script>
+</body>
+</html>

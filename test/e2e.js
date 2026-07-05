@@ -172,15 +172,21 @@ async function step(name, fn) {
       assert.ok(fs.existsSync(path.join(exportDir, '教學', '匯出說明.html')));
     });
 
-    await step('「🧠 Claude 記憶」把記憶彙整成一份筆記並開啟', async () => {
+    await step('「🧠 Claude 記憶」彙整成分類筆記(總記憶 + 群組)並開啟總記憶', async () => {
       await win.click('#btn-claude-sync');
-      await win.waitForFunction(() => document.querySelector('#editor').value.includes('Claude Code 記憶總覽'));
-      const noteDir = path.join(vault, 'Claude 記憶');
-      const notes = fs.readdirSync(noteDir);
-      assert.strictEqual(notes.length, 1);
-      const content = fs.readFileSync(path.join(noteDir, notes[0]), 'utf8');
-      assert.ok(content.includes('E2E 測試用記憶重點'));
-      assert.ok(content.includes('### demo（1 則）'));
+      await win.waitForFunction(() => document.querySelector('#editor').value.includes('Claude Code 總記憶'));
+      const host = os.hostname().replace(/\.local$/i, '');
+      const outDir = path.join(vault, 'Claude 記憶', host);
+      const notes = fs.readdirSync(outDir).sort();
+      assert.deepStrictEqual(notes, ['demo.md', '總記憶.md']);
+      const demo = fs.readFileSync(path.join(outDir, 'demo.md'), 'utf8');
+      assert.ok(demo.includes('E2E 測試用記憶重點'));
+      const main = fs.readFileSync(path.join(outDir, '總記憶.md'), 'utf8');
+      assert.ok(main.includes(`[[Claude 記憶/${host}/demo|demo]]`));
+      // 側邊欄應出現分類資料夾與群組筆記
+      const treeText = await win.textContent('#file-tree');
+      assert.ok(treeText.includes('Claude 記憶'));
+      assert.ok(treeText.includes('demo'));
     });
 
     console.log(`\n${passed} E2E steps passed ✅`);

@@ -4,7 +4,7 @@ const path = require('path');
 const { ipcRenderer } = require('electron');
 const { createRenderer } = require('../lib/markdown');
 const { exportNote, exportVault, walkVault, buildNoteIndex } = require('../lib/exporter');
-const { collectClaudeMemory } = require('../lib/claude-sync');
+const { syncToVault } = require('../lib/claude-sync');
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -434,26 +434,23 @@ async function exportVaultFlow() {
 
 /* ---------------- Claude Code memory sync ---------------- */
 
-function claudeSyncNotePath() {
-  const hostname = os.hostname().replace(/\.local$/i, '');
-  return path.join(state.vault, 'Claude 記憶', `Claude Code 記憶（${hostname}）.md`);
-}
-
-// Aggregate ~/.claude memory into one vault note. Manual click always writes
-// and opens the note; the automatic pass on vault load only refreshes it if
-// the user has created it before (opt-in).
+// Aggregate ~/.claude memory into the vault as a categorized folder:
+// Claude 記憶/<host>/總記憶.md plus one note per project group. Manual click
+// always syncs and opens 總記憶; the automatic pass on vault load only
+// refreshes if the folder already exists (opt-in).
 function syncClaudeMemory(auto = false) {
   if (!state.vault) return;
-  const noteFile = claudeSyncNotePath();
-  if (auto && !fs.existsSync(noteFile)) return;
+  const baseDir = path.join(state.vault, 'Claude 記憶');
+  if (auto && !fs.existsSync(baseDir)) return;
   try {
-    const { markdown, projects, entries } = collectClaudeMemory();
-    fs.mkdirSync(path.dirname(noteFile), { recursive: true });
-    fs.writeFileSync(noteFile, markdown);
+    const result = syncToVault(state.vault);
     refreshTree();
     if (!auto) {
-      openFile(noteFile);
-      els.statusSave.textContent = `✓ 已同步 ${projects} 個專案、${entries} 則記憶`;
+      state.expanded.add('Claude 記憶');
+      state.expanded.add(`Claude 記憶/${os.hostname().replace(/\.local$/i, '')}`);
+      refreshTree();
+      openFile(result.mainNote);
+      els.statusSave.textContent = `✓ 已同步 ${result.groups} 類、${result.projects} 個專案、${result.entries} 則記憶`;
     }
   } catch (err) {
     if (!auto) modal({ title: 'Claude 記憶同步失敗', message: String(err.message || err), okLabel: '知道了' });

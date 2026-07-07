@@ -211,9 +211,14 @@ async function step(name, fn) {
       await win.waitForFunction(() => document.querySelectorAll('#file-tree .tree-children').length === 0);
     });
 
-    await step('mermaid 程式碼區塊在預覽渲染成 SVG 流程圖', async () => {
-      await win.fill('#editor', '# 圖\n\n```mermaid\nflowchart TD\n  A[開始] --> B{判斷}\n  B -->|是| C[結束]\n```\n');
+    await step('mermaid 程式碼區塊在預覽渲染成 SVG 流程圖(含 <br/> HTML 標籤)', async () => {
+      await win.fill('#editor', '# 圖\n\n```mermaid\nflowchart TD\n  A["玩家離場 / 三方轉回<br/>(第二行)"] --> B{判斷}\n  B -->|是| C[結束]\n```\n');
       await win.waitForSelector('#preview .mermaid-block svg', { timeout: 10000 });
+      const previewText = await win.textContent('#preview');
+      assert.ok(
+        !previewText.includes('This page contains the following errors'),
+        'HTML 式標籤不應觸發 XML 解析錯誤'
+      );
     });
 
     await step('匯出 HTML 時 mermaid 圖轉成內嵌圖片保留', async () => {
@@ -225,6 +230,12 @@ async function step(name, fn) {
       );
       const html = fs.readFileSync(mermaidHtml, 'utf8');
       assert.ok(html.includes('data:image/svg+xml;base64,'), 'mermaid 應轉成內嵌 SVG 圖片');
+      const b64 = /data:image\/svg\+xml;base64,([A-Za-z0-9+/=]+)/.exec(html)[1];
+      const validXml = await win.evaluate((b) => {
+        const doc = new DOMParser().parseFromString(atob(b), 'image/svg+xml');
+        return !doc.querySelector('parsererror');
+      }, b64);
+      assert.ok(validXml, '內嵌的 SVG 必須是合法 XML,否則 <img> 無法顯示');
       await win.evaluate(() => { window.__saveTarget = null; });
     });
 

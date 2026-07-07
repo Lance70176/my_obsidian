@@ -369,18 +369,21 @@ function renderPreview() {
 
 /* ---------------- mermaid ---------------- */
 
-// Give the SVG explicit pixel width/height (from its viewBox) so it keeps its
-// natural size when embedded as an <img> in exports.
-function svgWithIntrinsicSize(svg) {
-  const doc = new DOMParser().parseFromString(svg, 'image/svg+xml');
-  const root = doc.documentElement;
+// Parse the mermaid output leniently (labels may contain HTML like <br>/<p>
+// that is not well-formed XML) and give the SVG explicit pixel width/height
+// from its viewBox so it keeps its natural size when embedded as an <img>.
+function parseMermaidSvg(svg) {
+  const host = document.createElement('div');
+  host.innerHTML = svg;
+  const root = host.querySelector('svg');
+  if (!root) return null;
   const vb = (root.getAttribute('viewBox') || '').trim().split(/\s+/).map(Number);
   if (vb.length === 4 && vb[2] > 0 && vb[3] > 0) {
     root.setAttribute('width', Math.ceil(vb[2]));
     root.setAttribute('height', Math.ceil(vb[3]));
     root.style.maxWidth = '';
   }
-  return new XMLSerializer().serializeToString(root);
+  return root;
 }
 
 let mermaidSeq = 0;
@@ -399,13 +402,17 @@ async function renderMermaidBlocks(root, { theme = 'default', asImage = false, m
   for (const block of blocks) {
     try {
       const { svg } = await mermaid.render(`mmd-${++mermaidSeq}`, block.dataset.mermaid || '');
-      const sized = svgWithIntrinsicSize(svg);
+      const svgEl = parseMermaidSvg(svg);
+      if (!svgEl) throw new Error('empty mermaid svg');
       if (asImage) {
-        const uri = `data:image/svg+xml;base64,${Buffer.from(sized).toString('base64')}`;
+        // XMLSerializer 會輸出合法 XML(自動閉合 <br> 等),data URI 才能被 <img> 解析。
+        const xml = new XMLSerializer().serializeToString(svgEl);
+        const uri = `data:image/svg+xml;base64,${Buffer.from(xml).toString('base64')}`;
         const style = maxHeightMm ? ` style="max-height:${maxHeightMm}mm"` : '';
         block.innerHTML = `<img src="${uri}" alt="mermaid 圖表"${style}>`;
       } else {
-        block.innerHTML = sized;
+        block.textContent = '';
+        block.appendChild(svgEl);
       }
     } catch (err) {
       block.classList.add('mermaid-error');

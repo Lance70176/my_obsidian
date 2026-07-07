@@ -189,6 +189,57 @@ async function step(name, fn) {
       await win.evaluate(() => { window.__saveTarget = null; });
     });
 
+    await step('主題切換:深→淺色並持久化,再切回', async () => {
+      await win.click('#btn-theme');
+      assert.ok(await win.evaluate(() => document.body.classList.contains('theme-light')));
+      assert.strictEqual(await win.evaluate(() => localStorage.getItem('theme')), 'light');
+      await win.click('#btn-theme');
+      assert.ok(await win.evaluate(() => !document.body.classList.contains('theme-light')));
+    });
+
+    await step('側欄「新資料夾」按鈕建立資料夾', async () => {
+      await win.click('#btn-new-folder');
+      await win.waitForSelector('#modal-overlay', { state: 'visible' });
+      await win.fill('#modal-input', '按鈕資料夾');
+      await win.click('#modal-ok');
+      await win.waitForSelector('#modal-overlay', { state: 'hidden' });
+      assert.ok(fs.existsSync(path.join(vault, '按鈕資料夾')));
+    });
+
+    await step('「全部收合」按鈕收合所有展開的資料夾', async () => {
+      await win.click('#btn-collapse-all');
+      await win.waitForFunction(() => document.querySelectorAll('#file-tree .tree-children').length === 0);
+    });
+
+    await step('mermaid 程式碼區塊在預覽渲染成 SVG 流程圖', async () => {
+      await win.fill('#editor', '# 圖\n\n```mermaid\nflowchart TD\n  A[開始] --> B{判斷}\n  B -->|是| C[結束]\n```\n');
+      await win.waitForSelector('#preview .mermaid-block svg', { timeout: 10000 });
+    });
+
+    await step('匯出 HTML 時 mermaid 圖轉成內嵌圖片保留', async () => {
+      const mermaidHtml = path.join(tmp, 'mermaid.html');
+      await win.evaluate((p) => { window.__saveTarget = p; }, mermaidHtml);
+      await win.click('#btn-export-note');
+      await win.waitForFunction(
+        (p) => window.require('fs').existsSync(p), mermaidHtml, { timeout: 10000 }
+      );
+      const html = fs.readFileSync(mermaidHtml, 'utf8');
+      assert.ok(html.includes('data:image/svg+xml;base64,'), 'mermaid 應轉成內嵌 SVG 圖片');
+      await win.evaluate(() => { window.__saveTarget = null; });
+    });
+
+    await step('匯出 PDF 時 mermaid 圖同樣保留', async () => {
+      const mermaidPdf = path.join(tmp, 'mermaid.pdf');
+      await win.evaluate((p) => { window.__saveTarget = p; }, mermaidPdf);
+      await win.click('#file-tree .tree-item.file:has-text("功能介紹")', { button: 'right' });
+      await win.click('#context-menu li:has-text("匯出成 PDF")');
+      await win.waitForFunction(
+        (p) => window.require('fs').existsSync(p), mermaidPdf, { timeout: 15000 }
+      );
+      assert.strictEqual(fs.readFileSync(mermaidPdf).subarray(0, 5).toString(), '%PDF-');
+      await win.evaluate(() => { window.__saveTarget = null; });
+    });
+
     await step('匯出整個 Vault 成 HTML 網站', async () => {
       await win.click('#btn-export-vault');
       await win.waitForSelector('#modal-overlay', { state: 'visible' });

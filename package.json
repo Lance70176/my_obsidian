@@ -12,7 +12,8 @@
   "license": "MIT",
   "dependencies": {
     "highlight.js": "^11.11.1",
-    "marked": "^18.0.5"
+    "marked": "^18.0.5",
+    "mermaid": "^11.16.0"
   },
   "devDependencies": {
     "electron": "^43.0.0",

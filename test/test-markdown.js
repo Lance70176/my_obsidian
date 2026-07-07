@@ -63,6 +63,12 @@ test('strips YAML frontmatter', () => {
   assert.ok(!html.includes('tags'));
 });
 
+test('mermaid code block becomes a placeholder carrying its source', () => {
+  const html = createRenderer().renderBody('```mermaid\nflowchart TD\n  A --> B\n```');
+  assert.match(html, /class="mermaid-block" data-mermaid="flowchart TD/);
+  assert.ok(html.includes('language-mermaid'), 'source kept as visible fallback');
+});
+
 test('escapes raw HTML-ish text in code', () => {
   const html = createRenderer().renderBody('```\n<script>alert(1)</script>\n```');
   assert.ok(!html.includes('<script>'));

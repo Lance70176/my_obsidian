@@ -3,7 +3,7 @@ const os = require('os');
 const path = require('path');
 const { ipcRenderer } = require('electron');
 const { createRenderer } = require('../lib/markdown');
-const { exportNote, renderNoteHtml, exportVault, walkVault, buildNoteIndex } = require('../lib/exporter');
+const { renderNoteHtml, exportVault, walkVault, buildNoteIndex } = require('../lib/exporter');
 const { syncToVault } = require('../lib/claude-sync');
 
 const $ = (id) => document.getElementById(id);
@@ -27,6 +27,7 @@ const state = {
   file: null,          // absolute path of the open note
   dirty: false,
   mode: localStorage.getItem('mode') || 'split',
+  theme: localStorage.getItem('theme') || 'dark',
   resolveNote: () => null,
   expanded: new Set(JSON.parse(localStorage.getItem('expanded') || '[]'))
 };
@@ -174,7 +175,7 @@ function fileItem(rel, label) {
   const item = document.createElement('div');
   item.className = 'tree-item file' + (abs === state.file ? ' active' : '');
   item.dataset.file = rel;
-  item.innerHTML = `<span class="icon">📄</span><span class="name"></span>`;
+  item.innerHTML = `<span class="icon"></span><span class="name"></span>`;
   item.querySelector('.name').textContent = label;
   item.title = rel;
   item.onclick = () => openFile(abs);
@@ -363,6 +364,62 @@ function previewRenderer() {
 function renderPreview() {
   if (!state.file) return;
   els.preview.innerHTML = previewRenderer().renderBody(els.editor.value);
+  renderMermaidBlocks(els.preview, { theme: state.theme === 'light' ? 'default' : 'dark' });
+}
+
+/* ---------------- mermaid ---------------- */
+
+// Give the SVG explicit pixel width/height (from its viewBox) so it keeps its
+// natural size when embedded as an <img> in exports.
+function svgWithIntrinsicSize(svg) {
+  const doc = new DOMParser().parseFromString(svg, 'image/svg+xml');
+  const root = doc.documentElement;
+  const vb = (root.getAttribute('viewBox') || '').trim().split(/\s+/).map(Number);
+  if (vb.length === 4 && vb[2] > 0 && vb[3] > 0) {
+    root.setAttribute('width', Math.ceil(vb[2]));
+    root.setAttribute('height', Math.ceil(vb[3]));
+    root.style.maxWidth = '';
+  }
+  return new XMLSerializer().serializeToString(root);
+}
+
+let mermaidSeq = 0;
+
+// Replace .mermaid-block placeholders (lib/markdown.js) with rendered SVG, or
+// with a self-contained <img> for exports. Failed renders keep the source
+// code fallback visible.
+async function renderMermaidBlocks(root, { theme = 'default', asImage = false, maxHeightMm = 0 } = {}) {
+  const blocks = [...root.querySelectorAll('.mermaid-block')];
+  if (!blocks.length || typeof mermaid === 'undefined') return;
+  mermaid.initialize({
+    startOnLoad: false,
+    theme,
+    fontFamily: '-apple-system, "PingFang TC", "Noto Sans TC", sans-serif'
+  });
+  for (const block of blocks) {
+    try {
+      const { svg } = await mermaid.render(`mmd-${++mermaidSeq}`, block.dataset.mermaid || '');
+      const sized = svgWithIntrinsicSize(svg);
+      if (asImage) {
+        const uri = `data:image/svg+xml;base64,${Buffer.from(sized).toString('base64')}`;
+        const style = maxHeightMm ? ` style="max-height:${maxHeightMm}mm"` : '';
+        block.innerHTML = `<img src="${uri}" alt="mermaid 圖表"${style}>`;
+      } else {
+        block.innerHTML = sized;
+      }
+    } catch (err) {
+      block.classList.add('mermaid-error');
+    }
+  }
+}
+
+// Render mermaid placeholders inside an exported HTML string into embedded
+// SVG images (data URI), so HTML/PDF exports keep the diagrams.
+async function embedMermaidInHtml(html, maxHeightMm = 0) {
+  if (!html.includes('mermaid-block')) return html;
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  await renderMermaidBlocks(doc.body, { theme: 'default', asImage: true, maxHeightMm });
+  return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}\n`;
 }
 
 function schedulePreview() {
@@ -422,15 +479,17 @@ async function exportNoteFlow(mdPath, format = 'html') {
       if (path.resolve(outPath) !== path.resolve(mdPath)) fs.copyFileSync(mdPath, outPath);
     } else if (format === 'pdf') {
       // PDF 由主行程隱藏視窗載入淺色版 HTML 再列印,圖片已內嵌所以暫存檔可即刪。
+      // mermaid 圖限制在單頁高度內,讓整張圖完整可見。
+      const html = await embedMermaidInHtml(renderNoteHtml(mdPath, { dark: false }), 240);
       const tmpHtml = path.join(os.tmpdir(), `myob-pdf-${Date.now()}.html`);
-      fs.writeFileSync(tmpHtml, renderNoteHtml(mdPath, { dark: false }));
+      fs.writeFileSync(tmpHtml, html);
       try {
         await ipcRenderer.invoke('export-pdf', { htmlPath: tmpHtml, outPath });
       } finally {
         fs.rmSync(tmpHtml, { force: true });
       }
     } else {
-      exportNote(mdPath, outPath);
+      fs.writeFileSync(outPath, await embedMermaidInHtml(renderNoteHtml(mdPath)));
     }
     ipcRenderer.invoke('reveal-in-finder', outPath);
   } catch (err) {
@@ -448,6 +507,7 @@ async function exportVaultFlow() {
   }
   try {
     const result = exportVault(state.vault, outDir);
+    await embedMermaidInVaultSite(outDir);
     const indexFile = fs.existsSync(path.join(outDir, 'index.html')) ? 'index.html' : '_toc.html';
     await modal({
       title: '匯出完成',
@@ -456,6 +516,23 @@ async function exportVaultFlow() {
     }).then((ok) => { if (ok) ipcRenderer.invoke('reveal-in-finder', path.join(outDir, indexFile)); });
   } catch (err) {
     modal({ title: '匯出失敗', message: String(err.message || err), okLabel: '知道了' });
+  }
+}
+
+// Vault 匯出後,把靜態網站裡每頁的 mermaid 佔位符渲染成內嵌圖。
+async function embedMermaidInVaultSite(outDir) {
+  const htmlFiles = [];
+  (function walk(dir) {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const abs = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(abs);
+      else if (/\.html$/i.test(entry.name)) htmlFiles.push(abs);
+    }
+  })(outDir);
+  for (const file of htmlFiles) {
+    const html = fs.readFileSync(file, 'utf8');
+    if (!html.includes('mermaid-block')) continue;
+    fs.writeFileSync(file, await embedMermaidInHtml(html));
   }
 }
 
@@ -496,6 +573,17 @@ function setMode(mode) {
   if (mode !== 'edit') renderPreview();
 }
 
+function setTheme(theme) {
+  state.theme = theme;
+  localStorage.setItem('theme', theme);
+  document.body.classList.toggle('theme-light', theme === 'light');
+  $('hljs-light').disabled = theme !== 'light';
+  $('hljs-dark').disabled = theme === 'light';
+  $('btn-theme').textContent = theme === 'light' ? '☀️' : '🌙';
+  // mermaid 圖表主題跟著切換,重畫預覽
+  if (state.file && state.mode !== 'edit') renderPreview();
+}
+
 els.editor.addEventListener('input', () => {
   state.dirty = true;
   updateStatus();
@@ -532,6 +620,14 @@ els.filter.addEventListener('input', refreshTree);
 $('btn-open-vault').onclick = openVaultDialog;
 $('btn-open-vault-2').onclick = openVaultDialog;
 $('btn-new-note').onclick = () => createNote(currentFolderRel());
+$('btn-new-folder').onclick = () => createFolder(currentFolderRel());
+$('btn-collapse-all').onclick = () => {
+  if (!state.vault) return;
+  state.expanded.clear();
+  localStorage.setItem('expanded', '[]');
+  refreshTree();
+};
+$('btn-theme').onclick = () => setTheme(state.theme === 'light' ? 'dark' : 'light');
 $('btn-export-note').onclick = () => exportNoteFlow(state.file);
 $('btn-export-vault').onclick = exportVaultFlow;
 $('btn-claude-sync').onclick = () => syncClaudeMemory(false);
@@ -559,6 +655,7 @@ window.addEventListener('beforeunload', flushSave);
 
 const savedWidth = localStorage.getItem('sidebarWidth');
 if (savedWidth) $('sidebar').style.width = savedWidth;
+setTheme(state.theme);
 setMode(state.mode);
 showEmpty(false);
 const lastVault = localStorage.getItem('lastVault');

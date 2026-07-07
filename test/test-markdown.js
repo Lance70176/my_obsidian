@@ -5,7 +5,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { createRenderer, stripFrontmatter } = require('../lib/markdown');
-const { exportNote, exportVault, mdHrefToHtml, buildNoteIndex } = require('../lib/exporter');
+const { exportNote, renderNoteHtml, exportVault, mdHrefToHtml, buildNoteIndex } = require('../lib/exporter');
 
 let passed = 0;
 function test(name, fn) {
@@ -109,6 +109,13 @@ test('exportNote produces a standalone HTML file with inlined image', () => {
   assert.ok(html.includes('data:image/png;base64,'), 'image should be inlined as data URI');
   assert.ok(html.includes('<style>'), 'CSS should be embedded');
   assert.ok(html.includes('prefers-color-scheme: dark'), 'dark theme should be embedded');
+});
+
+test('renderNoteHtml with dark:false emits a light-only document (for PDF)', () => {
+  const html = renderNoteHtml(path.join(vault, '歡迎.md'), { dark: false });
+  assert.ok(!html.includes('prefers-color-scheme: dark'), 'no dark media query');
+  assert.ok(html.includes('color-scheme: light'), 'color-scheme forced to light');
+  assert.ok(html.includes('data:image/png;base64,'), 'image still inlined');
 });
 
 test('exportVault builds a linked static site', () => {

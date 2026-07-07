@@ -52,7 +52,7 @@ async function step(name, fn) {
         const orig = ipcRenderer.invoke.bind(ipcRenderer);
         ipcRenderer.invoke = (ch, ...args) => {
           if (ch === 'choose-vault') return Promise.resolve(vault);
-          if (ch === 'choose-save-html') return Promise.resolve(exportFile);
+          if (ch === 'choose-save-file') return Promise.resolve(window.__saveTarget || exportFile);
           if (ch === 'choose-export-dir') return Promise.resolve(exportDir);
           if (ch === 'reveal-in-finder') return Promise.resolve();
           return orig(ch, ...args);
@@ -161,6 +161,32 @@ async function step(name, fn) {
       );
       const html = fs.readFileSync(exportFile, 'utf8');
       assert.ok(html.includes('<!DOCTYPE html>') && html.includes('hljs'));
+    });
+
+    await step('右鍵選單匯出 PDF', async () => {
+      const pdfFile = path.join(tmp, 'single.pdf');
+      await win.evaluate((p) => { window.__saveTarget = p; }, pdfFile);
+      await win.click('#file-tree .tree-item.file:has-text("功能介紹")', { button: 'right' });
+      await win.click('#context-menu li:has-text("匯出成 PDF")');
+      await win.waitForFunction(
+        (p) => window.require('fs').existsSync(p), pdfFile, { timeout: 15000 }
+      );
+      assert.strictEqual(fs.readFileSync(pdfFile).subarray(0, 5).toString(), '%PDF-');
+    });
+
+    await step('右鍵選單匯出 Markdown(原始檔複製)', async () => {
+      const mdFile = path.join(tmp, 'single-copy.md');
+      await win.evaluate((p) => { window.__saveTarget = p; }, mdFile);
+      await win.click('#file-tree .tree-item.file:has-text("功能介紹")', { button: 'right' });
+      await win.click('#context-menu li:has-text("匯出成 Markdown")');
+      await win.waitForFunction(
+        (p) => window.require('fs').existsSync(p), mdFile, { timeout: 5000 }
+      );
+      assert.strictEqual(
+        fs.readFileSync(mdFile, 'utf8'),
+        fs.readFileSync(path.join(vault, '功能介紹.md'), 'utf8')
+      );
+      await win.evaluate(() => { window.__saveTarget = null; });
     });
 
     await step('匯出整個 Vault 成 HTML 網站', async () => {

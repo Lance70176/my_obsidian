@@ -3,7 +3,7 @@ const os = require('os');
 const path = require('path');
 const { ipcRenderer } = require('electron');
 const { createRenderer } = require('../lib/markdown');
-const { exportNote, exportVault, walkVault, buildNoteIndex } = require('../lib/exporter');
+const { exportNote, renderNoteHtml, exportVault, walkVault, buildNoteIndex } = require('../lib/exporter');
 const { syncToVault } = require('../lib/claude-sync');
 
 const $ = (id) => document.getElementById(id);
@@ -196,7 +196,10 @@ function showContextMenu(event, target) {
   entries.push(['✎ 重新命名', () => renameEntry(target)]);
   entries.push(['🗑 刪除', () => deleteEntry(target), 'danger']);
   if (target.type === 'file') {
-    entries.push(['⬇ 匯出成 HTML', () => exportNoteFlow(path.join(state.vault, ...target.rel.split('/')))]);
+    const abs = path.join(state.vault, ...target.rel.split('/'));
+    entries.push(['⬇ 匯出成 HTML', () => exportNoteFlow(abs, 'html')]);
+    entries.push(['⬇ 匯出成 PDF', () => exportNoteFlow(abs, 'pdf')]);
+    entries.push(['⬇ 匯出成 Markdown', () => exportNoteFlow(abs, 'md')]);
   }
   entries.push(['在 Finder 顯示', () => ipcRenderer.invoke('reveal-in-finder', path.join(state.vault, ...target.rel.split('/')))]);
   for (const [label, action, cls] of entries) {
@@ -397,14 +400,38 @@ els.preview.addEventListener('click', async (e) => {
 
 /* ---------------- export ---------------- */
 
-async function exportNoteFlow(mdPath) {
+const EXPORT_FORMATS = {
+  html: { label: 'HTML', ext: '.html', filters: [{ name: 'HTML', extensions: ['html'] }] },
+  pdf: { label: 'PDF', ext: '.pdf', filters: [{ name: 'PDF', extensions: ['pdf'] }] },
+  md: { label: 'Markdown', ext: '.md', filters: [{ name: 'Markdown', extensions: ['md', 'markdown'] }] }
+};
+
+async function exportNoteFlow(mdPath, format = 'html') {
   if (!mdPath) return;
   flushSave();
-  const defaultName = path.basename(mdPath).replace(/\.(md|markdown)$/i, '.html');
-  const outPath = await ipcRenderer.invoke('choose-save-html', defaultName);
+  const fmt = EXPORT_FORMATS[format];
+  const defaultName = path.basename(mdPath).replace(/\.(md|markdown)$/i, fmt.ext);
+  const outPath = await ipcRenderer.invoke('choose-save-file', {
+    title: `匯出為 ${fmt.label}`,
+    defaultName,
+    filters: fmt.filters
+  });
   if (!outPath) return;
   try {
-    exportNote(mdPath, outPath);
+    if (format === 'md') {
+      if (path.resolve(outPath) !== path.resolve(mdPath)) fs.copyFileSync(mdPath, outPath);
+    } else if (format === 'pdf') {
+      // PDF 由主行程隱藏視窗載入淺色版 HTML 再列印,圖片已內嵌所以暫存檔可即刪。
+      const tmpHtml = path.join(os.tmpdir(), `myob-pdf-${Date.now()}.html`);
+      fs.writeFileSync(tmpHtml, renderNoteHtml(mdPath, { dark: false }));
+      try {
+        await ipcRenderer.invoke('export-pdf', { htmlPath: tmpHtml, outPath });
+      } finally {
+        fs.rmSync(tmpHtml, { force: true });
+      }
+    } else {
+      exportNote(mdPath, outPath);
+    }
     ipcRenderer.invoke('reveal-in-finder', outPath);
   } catch (err) {
     modal({ title: '匯出失敗', message: String(err.message || err), okLabel: '知道了' });

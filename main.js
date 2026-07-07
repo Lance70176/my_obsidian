@@ -1,4 +1,5 @@
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
+const fs = require('fs');
 const path = require('path');
 
 let mainWindow = null;
@@ -46,13 +47,30 @@ ipcMain.handle('choose-vault', async () => {
   return result.canceled ? null : result.filePaths[0];
 });
 
-ipcMain.handle('choose-save-html', async (_event, defaultName) => {
+ipcMain.handle('choose-save-file', async (_event, { title, defaultName, filters }) => {
   const result = await dialog.showSaveDialog(mainWindow, {
-    title: '匯出為 HTML',
+    title,
     defaultPath: defaultName,
-    filters: [{ name: 'HTML', extensions: ['html'] }]
+    filters
   });
   return result.canceled ? null : result.filePath;
+});
+
+// Render a standalone HTML file in a hidden window and print it to PDF.
+ipcMain.handle('export-pdf', async (_event, { htmlPath, outPath }) => {
+  const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true } });
+  try {
+    await win.loadFile(htmlPath);
+    const pdf = await win.webContents.printToPDF({
+      pageSize: 'A4',
+      printBackground: true,
+      margins: { top: 0.6, bottom: 0.6, left: 0.55, right: 0.55 }
+    });
+    fs.writeFileSync(outPath, pdf);
+    return outPath;
+  } finally {
+    win.destroy();
+  }
 });
 
 ipcMain.handle('choose-export-dir', async () => {

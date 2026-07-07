@@ -5,7 +5,16 @@ const path = require('path');
 let mainWindow = null;
 
 // Isolated profile for automated tests (test/e2e.js).
-if (process.env.MYOB_USER_DATA) app.setPath('userData', process.env.MYOB_USER_DATA);
+if (process.env.MYOB_USER_DATA) {
+  app.setPath('userData', process.env.MYOB_USER_DATA);
+} else {
+  // 0.1 版 app 名稱是 my_obsidian;改名 MyObsidian 後搬舊使用者資料,保留設定。
+  const newData = app.getPath('userData');
+  const oldData = path.join(path.dirname(newData), 'my_obsidian');
+  if (!fs.existsSync(newData) && fs.existsSync(oldData)) {
+    fs.cpSync(oldData, newData, { recursive: true });
+  }
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -13,7 +22,7 @@ function createWindow() {
     height: 860,
     minWidth: 760,
     minHeight: 480,
-    title: 'my_obsidian',
+    title: 'MyObsidian',
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     backgroundColor: '#1e1e2e',
     webPreferences: {

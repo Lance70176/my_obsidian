@@ -1,5 +1,6 @@
 {
   "name": "my_obsidian",
+  "productName": "MyObsidian",
   "version": "0.1.0",
   "description": "A local Markdown knowledge base app: edit, preview, and export Markdown to standalone HTML.",
   "main": "main.js",

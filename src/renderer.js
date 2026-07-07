@@ -93,7 +93,7 @@ function loadVault(dir) {
   state.vault = dir;
   localStorage.setItem('lastVault', dir);
   els.vaultName.textContent = path.basename(dir);
-  document.title = `my_obsidian — ${path.basename(dir)}`;
+  document.title = `MyObsidian — ${path.basename(dir)}`;
   refreshTree();
   syncClaudeMemory(true);
   const lastFile = localStorage.getItem('lastFile');

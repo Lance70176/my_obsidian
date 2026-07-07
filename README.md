@@ -1,4 +1,4 @@
-# my_obsidian
+# MyObsidian
 
 本地 Markdown 知識庫 App(類 Obsidian):編輯、即時預覽、`[[雙向連結]]`,並支援 **MD → HTML 匯出**,方便離線閱讀與分享。
 

@@ -69,8 +69,8 @@ async function step(name, fn) {
     await step('點擊筆記後,編輯器與預覽都正確載入', async () => {
       await win.click('#file-tree .tree-item.file:has-text("歡迎")');
       const text = await win.inputValue('#editor');
-      assert.ok(text.startsWith('# 歡迎使用 my_obsidian'));
-      assert.strictEqual(await win.textContent('#preview h1'), '歡迎使用 my_obsidian 👋');
+      assert.ok(text.startsWith('# 歡迎使用 MyObsidian'));
+      assert.strictEqual(await win.textContent('#preview h1'), '歡迎使用 MyObsidian 👋');
       assert.ok((await win.textContent('#status-save')).includes('已儲存'));
     });
 

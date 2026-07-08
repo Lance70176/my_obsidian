@@ -301,6 +301,13 @@ button.primary:hover { background: var(--accent); }
 #context-menu li { padding: 5px 10px; border-radius: 5px; cursor: pointer; }
 #context-menu li:hover { background: var(--bg-hover); }
 #context-menu li.danger { color: var(--danger); }
+#context-menu li.separator {
+  height: 1px;
+  padding: 0;
+  margin: 4px 6px;
+  background: var(--border);
+  pointer-events: none;
+}
 
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 5px; }

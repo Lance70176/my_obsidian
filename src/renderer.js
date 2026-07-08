@@ -185,11 +185,31 @@ function fileItem(rel, label) {
 
 /* ---------------- context menu ---------------- */
 
+// 通用彈出選單:entries 為 [label, action, cls] 或 ['---'] 分隔線。
+function showMenu(entries, x, y) {
+  const menu = $('context-menu');
+  menu.textContent = '';
+  for (const [label, action, cls] of entries) {
+    const li = document.createElement('li');
+    if (label === '---') {
+      li.className = 'separator';
+    } else {
+      li.textContent = label;
+      if (cls) li.className = cls;
+      li.onclick = () => { hideContextMenu(); action(); };
+    }
+    menu.appendChild(li);
+  }
+  menu.hidden = false;
+  const { innerWidth, innerHeight } = window;
+  const rect = menu.getBoundingClientRect();
+  menu.style.left = `${Math.min(x, innerWidth - rect.width - 8)}px`;
+  menu.style.top = `${Math.min(y, innerHeight - rect.height - 8)}px`;
+}
+
 function showContextMenu(event, target) {
   event.preventDefault();
   event.stopPropagation();
-  const menu = $('context-menu');
-  menu.textContent = '';
   const folderRel = target.type === 'folder' ? target.rel : target.rel.split('/').slice(0, -1).join('/');
   const entries = [];
   entries.push(['＋ 新筆記', () => createNote(folderRel)]);
@@ -203,18 +223,7 @@ function showContextMenu(event, target) {
     entries.push(['⬇ 匯出成 Markdown', () => exportNoteFlow(abs, 'md')]);
   }
   entries.push(['在 Finder 顯示', () => ipcRenderer.invoke('reveal-in-finder', path.join(state.vault, ...target.rel.split('/')))]);
-  for (const [label, action, cls] of entries) {
-    const li = document.createElement('li');
-    li.textContent = label;
-    if (cls) li.className = cls;
-    li.onclick = () => { hideContextMenu(); action(); };
-    menu.appendChild(li);
-  }
-  menu.hidden = false;
-  const { innerWidth, innerHeight } = window;
-  const rect = menu.getBoundingClientRect();
-  menu.style.left = `${Math.min(event.clientX, innerWidth - rect.width - 8)}px`;
-  menu.style.top = `${Math.min(event.clientY, innerHeight - rect.height - 8)}px`;
+  showMenu(entries, event.clientX, event.clientY);
 }
 
 function hideContextMenu() { $('context-menu').hidden = true; }
@@ -635,8 +644,20 @@ $('btn-collapse-all').onclick = () => {
   refreshTree();
 };
 $('btn-theme').onclick = () => setTheme(state.theme === 'light' ? 'dark' : 'light');
-$('btn-export-note').onclick = () => exportNoteFlow(state.file);
-$('btn-export-vault').onclick = exportVaultFlow;
+$('btn-export').onclick = (e) => {
+  e.stopPropagation();
+  if (!state.vault) return;
+  const entries = [];
+  if (state.file) {
+    entries.push(['⬇ 匯出成 HTML', () => exportNoteFlow(state.file, 'html')]);
+    entries.push(['⬇ 匯出成 PDF', () => exportNoteFlow(state.file, 'pdf')]);
+    entries.push(['⬇ 匯出成 Markdown', () => exportNoteFlow(state.file, 'md')]);
+    entries.push(['---']);
+  }
+  entries.push(['🌐 匯出整個 Vault(HTML 網站)', exportVaultFlow]);
+  const rect = e.currentTarget.getBoundingClientRect();
+  showMenu(entries, rect.left, rect.bottom + 4);
+};
 $('btn-claude-sync').onclick = () => syncClaudeMemory(false);
 for (const btn of document.querySelectorAll('#mode-group button')) {
   btn.onclick = () => setMode(btn.dataset.mode);

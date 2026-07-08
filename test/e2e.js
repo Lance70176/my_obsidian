@@ -39,11 +39,11 @@ async function step(name, fn) {
   await win.waitForSelector('#empty-state', { state: 'visible' });
 
   try {
-    await step('沒有 Vault 時,新筆記/匯出按鈕不會跳出對話框', async () => {
+    await step('沒有 Vault 時,新筆記/匯出按鈕不會跳出對話框或選單', async () => {
       await win.click('#btn-new-note');
-      await win.click('#btn-export-note');
-      await win.click('#btn-export-vault');
+      await win.click('#btn-export');
       assert.strictEqual(await win.isVisible('#modal-overlay'), false);
+      assert.strictEqual(await win.isVisible('#context-menu'), false);
     });
 
     await step('stub 原生對話框後,「開啟 Vault」載入 SampleVault', async () => {
@@ -152,10 +152,12 @@ async function step(name, fn) {
       await win.fill('#tree-filter', '');
     });
 
-    await step('匯出單篇 HTML(自包含檔案)', async () => {
+    await step('工具列「匯出」下拉選單匯出單篇 HTML(自包含檔案)', async () => {
       await win.click('#file-tree .tree-item.file:has-text("功能介紹")');
       await win.waitForFunction(() => document.querySelector('#editor').value.startsWith('# 功能介紹'));
-      await win.click('#btn-export-note');
+      await win.click('#btn-export');
+      await win.waitForSelector('#context-menu', { state: 'visible' });
+      await win.click('#context-menu li:has-text("匯出成 HTML")');
       await win.waitForFunction(
         (p) => window.require('fs').existsSync(p), exportFile, { timeout: 5000 }
       );
@@ -224,7 +226,8 @@ async function step(name, fn) {
     await step('匯出 HTML 時 mermaid 圖轉成內嵌圖片保留', async () => {
       const mermaidHtml = path.join(tmp, 'mermaid.html');
       await win.evaluate((p) => { window.__saveTarget = p; }, mermaidHtml);
-      await win.click('#btn-export-note');
+      await win.click('#btn-export');
+      await win.click('#context-menu li:has-text("匯出成 HTML")');
       await win.waitForFunction(
         (p) => window.require('fs').existsSync(p), mermaidHtml, { timeout: 10000 }
       );
@@ -252,7 +255,8 @@ async function step(name, fn) {
     });
 
     await step('匯出整個 Vault 成 HTML 網站', async () => {
-      await win.click('#btn-export-vault');
+      await win.click('#btn-export');
+      await win.click('#context-menu li:has-text("匯出整個 Vault")');
       await win.waitForSelector('#modal-overlay', { state: 'visible' });
       assert.ok((await win.textContent('#modal-msg')).includes('已匯出'));
       await win.click('#modal-cancel');

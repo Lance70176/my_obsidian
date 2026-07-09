@@ -213,6 +213,23 @@ async function step(name, fn) {
       await win.waitForFunction(() => document.querySelectorAll('#file-tree .tree-children').length === 0);
     });
 
+    await step('排序選單:修改時間(新→舊)讓最近編輯的筆記排最前,並可切回名稱', async () => {
+      await win.click('#btn-sort');
+      await win.click('#context-menu li:has-text("修改時間（新→舊）")');
+      await win.click('#file-tree .tree-item.file:has-text("歡迎")');
+      await win.fill('#editor', '# 自動儲存測試\n\n排序測試。');
+      await win.waitForFunction(() => {
+        const f = document.querySelector('#file-tree .tree-item.file');
+        return f && f.textContent.includes('歡迎');
+      }, null, { timeout: 5000 });
+      await win.click('#btn-sort');
+      await win.click('#context-menu li:has-text("名稱（A→Z）")');
+      assert.strictEqual(
+        await win.evaluate(() => localStorage.getItem('sortMode')), 'name-asc'
+      );
+      await win.click('#file-tree .tree-item.file:has-text("功能介紹")');
+    });
+
     await step('mermaid 程式碼區塊在預覽渲染成 SVG 流程圖(含 <br/> HTML 標籤)', async () => {
       await win.fill('#editor', '# 圖\n\n```mermaid\nflowchart TD\n  A["玩家離場 / 三方轉回<br/>(第二行)"] --> B{判斷}\n  B -->|是| C[結束]\n```\n');
       await win.waitForSelector('#preview .mermaid-block svg', { timeout: 10000 });

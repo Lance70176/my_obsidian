@@ -235,6 +235,23 @@ async function step(name, fn) {
       await win.click('#file-tree .tree-item.file:has-text("功能介紹")');
     });
 
+    await step('依日期排序時檔名右側顯示日期,建立時間排序可用,名稱排序不顯示', async () => {
+      await win.click('#btn-sort');
+      await win.click('#context-menu li:has-text("建立時間（新→舊）")');
+      assert.strictEqual(
+        await win.evaluate(() => localStorage.getItem('sortMode')), 'ctime-desc'
+      );
+      await win.waitForSelector('#file-tree .tree-item.file .date');
+      const dates = await win.$$eval('#file-tree .tree-item.file .date', (els) => els.map((e) => e.textContent));
+      assert.ok(dates.every((t) => /^(\d{4}\/)?\d{2}\/\d{2}$/.test(t)), `date badges should look like MM/DD, got: ${dates}`);
+      await win.click('#btn-sort');
+      await win.click('#context-menu li:has-text("修改時間（新→舊）")');
+      await win.waitForSelector('#file-tree .tree-item.file .date');
+      await win.click('#btn-sort');
+      await win.click('#context-menu li:has-text("名稱（A→Z）")');
+      await win.waitForFunction(() => document.querySelectorAll('#file-tree .tree-item.file .date').length === 0);
+    });
+
     await step('mermaid 程式碼區塊在預覽渲染成 SVG 流程圖(含 <br/> HTML 標籤)', async () => {
       await win.fill('#editor', '# 圖\n\n```mermaid\nflowchart TD\n  A["玩家離場 / 三方轉回<br/>(第二行)"] --> B{判斷}\n  B -->|是| C[結束]\n```\n');
       await win.waitForSelector('#preview .mermaid-block svg', { timeout: 10000 });

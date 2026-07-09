@@ -30,6 +30,7 @@ const state = {
   theme: localStorage.getItem('theme') || 'dark',
   sort: localStorage.getItem('sortMode') || 'name-asc',
   mtimes: new Map(),
+  ctimes: new Map(),
   resolveNote: () => null,
   expanded: new Set(JSON.parse(localStorage.getItem('expanded') || '[]'))
 };
@@ -112,13 +113,18 @@ function loadVault(dir) {
 function refreshTree() {
   const { notes } = walkVault(state.vault, null);
   state.resolveNote = buildNoteIndex(notes);
-  state.mtimes = new Map(notes.map((rel) => {
+  state.mtimes = new Map();
+  state.ctimes = new Map();
+  for (const rel of notes) {
     try {
-      return [rel, fs.statSync(path.join(state.vault, ...rel.split('/'))).mtimeMs];
+      const st = fs.statSync(path.join(state.vault, ...rel.split('/')));
+      state.mtimes.set(rel, st.mtimeMs);
+      state.ctimes.set(rel, st.birthtimeMs || st.ctimeMs);
     } catch {
-      return [rel, 0];
+      state.mtimes.set(rel, 0);
+      state.ctimes.set(rel, 0);
     }
-  }));
+  }
   renderTree(notes);
   schedulePreview();
 }
@@ -159,7 +165,9 @@ const SORT_MODES = [
   ['name-asc', '名稱（A→Z）'],
   ['name-desc', '名稱（Z→A）'],
   ['mtime-desc', '修改時間（新→舊）'],
-  ['mtime-asc', '修改時間（舊→新）']
+  ['mtime-asc', '修改時間（舊→新）'],
+  ['ctime-desc', '建立時間（新→舊）'],
+  ['ctime-asc', '建立時間（舊→新）']
 ];
 
 function sortFiles(rels) {
@@ -171,6 +179,10 @@ function sortFiles(rels) {
       return arr.sort((a, b) => (state.mtimes.get(b) || 0) - (state.mtimes.get(a) || 0));
     case 'mtime-asc':
       return arr.sort((a, b) => (state.mtimes.get(a) || 0) - (state.mtimes.get(b) || 0));
+    case 'ctime-desc':
+      return arr.sort((a, b) => (state.ctimes.get(b) || 0) - (state.ctimes.get(a) || 0));
+    case 'ctime-asc':
+      return arr.sort((a, b) => (state.ctimes.get(a) || 0) - (state.ctimes.get(b) || 0));
     default:
       return arr.sort((a, b) => a.localeCompare(b, 'zh-Hant'));
   }
@@ -187,6 +199,15 @@ function fmtMtime(ms) {
   const d = new Date(ms);
   const p = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
+// 側欄檔名右側的短日期:今年只顯示月/日,跨年才帶年份。
+function fmtDateShort(ms) {
+  if (!ms) return '';
+  const d = new Date(ms);
+  const p = (n) => String(n).padStart(2, '0');
+  const md = `${p(d.getMonth() + 1)}/${p(d.getDate())}`;
+  return d.getFullYear() === new Date().getFullYear() ? md : `${d.getFullYear()}/${md}`;
 }
 
 // Build a nested {folders, files} structure from vault-relative note paths.
@@ -255,8 +276,17 @@ function fileItem(rel, label) {
   item.dataset.file = rel;
   item.innerHTML = `<span class="icon"></span><span class="name"></span>`;
   item.querySelector('.name').textContent = label;
+  // 依日期排序時,檔名右側顯示排序依據的日期(修改或建立)。
+  if (state.sort.startsWith('mtime') || state.sort.startsWith('ctime')) {
+    const ms = state.sort.startsWith('ctime') ? state.ctimes.get(rel) : state.mtimes.get(rel);
+    const date = document.createElement('span');
+    date.className = 'date';
+    date.textContent = fmtDateShort(ms);
+    item.appendChild(date);
+  }
   const mtime = fmtMtime(state.mtimes.get(rel));
-  item.title = mtime ? `${rel}\n修改：${mtime}` : rel;
+  const ctime = fmtMtime(state.ctimes.get(rel));
+  item.title = [rel, mtime && `修改：${mtime}`, ctime && `建立：${ctime}`].filter(Boolean).join('\n');
   item.onclick = () => openFile(abs);
   item.oncontextmenu = (e) => showContextMenu(e, { type: 'file', rel });
   return item;

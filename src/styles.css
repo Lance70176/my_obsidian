@@ -166,6 +166,15 @@ button.primary:hover { background: var(--accent); }
 }
 .tree-item .icon { flex: none; width: 16px; text-align: center; color: var(--text-dim); font-size: 11px; }
 .tree-item .name { overflow: hidden; text-overflow: ellipsis; }
+/* 日期排序時檔名右側的短日期 */
+.tree-item .date {
+  flex: none;
+  margin-left: auto;
+  padding-left: 8px;
+  font-size: 10.5px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
 .tree-children { margin-left: 15px; }
 .tree-item.folder { color: var(--text-dim); font-weight: 550; }
 /* 資料夾展開/收合圖示:Obsidian 風格 chevron,展開時旋轉 90°,清楚可辨 */

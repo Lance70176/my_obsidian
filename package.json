@@ -9,7 +9,8 @@
     "test": "node test/test-markdown.js && node test/test-claude-sync.js",
     "test:e2e": "node test/e2e.js",
     "clean:dist": "rm -rf dist",
-    "package": "npm run clean:dist && npx --yes @electron/packager . --overwrite --out=dist --platform=darwin --arch=arm64"
+    "package": "npm run clean:dist && npx --yes @electron/packager . --overwrite --out=dist --platform=darwin --arch=arm64 --ignore='/\\.claude' --ignore='/\\.git' --ignore='/test($|/)' --ignore='/SampleVault'",
+    "package:universal": "npm run clean:dist && npx --yes @electron/packager . --overwrite --out=dist --platform=darwin --arch=universal --ignore='/\\.claude' --ignore='/\\.git' --ignore='/test($|/)' --ignore='/SampleVault'"
   },
   "author": "lujianzhou",
   "license": "MIT",

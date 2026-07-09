@@ -225,7 +225,7 @@ function renderNode(node, relBase) {
     const item = document.createElement('div');
     item.className = 'tree-item folder';
     item.dataset.folder = rel;
-    item.innerHTML = `<span class="icon">${isOpen ? '▾' : '▸'}</span><span class="name"></span>`;
+    item.innerHTML = `<span class="icon chevron${isOpen ? ' open' : ''}"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></span><span class="name"></span>`;
     item.querySelector('.name').textContent = name;
     item.onclick = () => {
       state.expanded.has(rel) ? state.expanded.delete(rel) : state.expanded.add(rel);

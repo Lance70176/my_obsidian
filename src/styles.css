@@ -168,9 +168,25 @@ button.primary:hover { background: var(--accent); }
 .tree-item .name { overflow: hidden; text-overflow: ellipsis; }
 .tree-children { margin-left: 15px; }
 .tree-item.folder { color: var(--text-dim); font-weight: 550; }
-/* 資料夾展開/收合三角形放大、提亮,讓層級一眼可辨 */
-.tree-item.folder .icon { font-size: 15px; line-height: 1; color: var(--accent); }
-.tree-item.folder:hover .icon { color: var(--accent-dim); }
+/* 資料夾展開/收合圖示:Obsidian 風格 chevron,展開時旋轉 90°,清楚可辨 */
+.tree-item .icon.chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  transition: transform 0.12s ease, color 0.12s ease;
+}
+.tree-item .icon.chevron svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.tree-item .icon.chevron.open { transform: rotate(90deg); }
+.tree-item.folder:hover .icon.chevron { color: var(--text); }
 
 /* ---- main panes ---- */
 #main { flex: 1; display: flex; min-width: 0; }

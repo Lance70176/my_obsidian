@@ -7,7 +7,9 @@
   "scripts": {
     "start": "electron .",
     "test": "node test/test-markdown.js && node test/test-claude-sync.js",
-    "test:e2e": "node test/e2e.js"
+    "test:e2e": "node test/e2e.js",
+    "clean:dist": "rm -rf dist",
+    "package": "npm run clean:dist && npx --yes @electron/packager . --overwrite --out=dist --platform=darwin --arch=arm64"
   },
   "author": "lujianzhou",
   "license": "MIT",

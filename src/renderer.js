@@ -28,6 +28,8 @@ const state = {
   dirty: false,
   mode: localStorage.getItem('mode') || 'split',
   theme: localStorage.getItem('theme') || 'dark',
+  sort: localStorage.getItem('sortMode') || 'name-asc',
+  mtimes: new Map(),
   resolveNote: () => null,
   expanded: new Set(JSON.parse(localStorage.getItem('expanded') || '[]'))
 };
@@ -107,8 +109,51 @@ function loadVault(dir) {
 function refreshTree() {
   const { notes } = walkVault(state.vault, null);
   state.resolveNote = buildNoteIndex(notes);
+  state.mtimes = new Map(notes.map((rel) => {
+    try {
+      return [rel, fs.statSync(path.join(state.vault, ...rel.split('/'))).mtimeMs];
+    } catch {
+      return [rel, 0];
+    }
+  }));
   renderTree(notes);
   schedulePreview();
+}
+
+/* ---- 檔案排序 ---- */
+
+const SORT_MODES = [
+  ['name-asc', '名稱（A→Z）'],
+  ['name-desc', '名稱（Z→A）'],
+  ['mtime-desc', '修改時間（新→舊）'],
+  ['mtime-asc', '修改時間（舊→新）']
+];
+
+function sortFiles(rels) {
+  const arr = [...rels];
+  switch (state.sort) {
+    case 'name-desc':
+      return arr.sort((a, b) => b.localeCompare(a, 'zh-Hant'));
+    case 'mtime-desc':
+      return arr.sort((a, b) => (state.mtimes.get(b) || 0) - (state.mtimes.get(a) || 0));
+    case 'mtime-asc':
+      return arr.sort((a, b) => (state.mtimes.get(a) || 0) - (state.mtimes.get(b) || 0));
+    default:
+      return arr.sort((a, b) => a.localeCompare(b, 'zh-Hant'));
+  }
+}
+
+function setSort(mode) {
+  state.sort = mode;
+  localStorage.setItem('sortMode', mode);
+  refreshTree();
+}
+
+function fmtMtime(ms) {
+  if (!ms) return '';
+  const d = new Date(ms);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
 
 // Build a nested {folders, files} structure from vault-relative note paths.
@@ -130,7 +175,7 @@ function renderTree(notes) {
   const filter = els.filter.value.trim().toLowerCase();
   els.tree.textContent = '';
   if (filter) {
-    for (const rel of notes.filter((r) => r.toLowerCase().includes(filter)).sort()) {
+    for (const rel of sortFiles(notes.filter((r) => r.toLowerCase().includes(filter)))) {
       els.tree.appendChild(fileItem(rel, rel.replace(/\.(md|markdown)$/i, '')));
     }
     return;
@@ -163,7 +208,7 @@ function renderNode(node, relBase) {
       frag.appendChild(children);
     }
   }
-  for (const rel of [...node.files].sort((a, b) => a.localeCompare(b, 'zh-Hant'))) {
+  for (const rel of sortFiles(node.files)) {
     const name = rel.split('/').pop().replace(/\.(md|markdown)$/i, '');
     frag.appendChild(fileItem(rel, name));
   }
@@ -177,7 +222,8 @@ function fileItem(rel, label) {
   item.dataset.file = rel;
   item.innerHTML = `<span class="icon"></span><span class="name"></span>`;
   item.querySelector('.name').textContent = label;
-  item.title = rel;
+  const mtime = fmtMtime(state.mtimes.get(rel));
+  item.title = mtime ? `${rel}\n修改：${mtime}` : rel;
   item.onclick = () => openFile(abs);
   item.oncontextmenu = (e) => showContextMenu(e, { type: 'file', rel });
   return item;
@@ -334,6 +380,12 @@ function saveFile() {
   fs.writeFileSync(state.file, els.editor.value);
   state.dirty = false;
   updateStatus();
+  // 依修改時間排序時,存檔後讓樹狀順序即時反映
+  if (state.sort.startsWith('mtime')) {
+    const rel = path.relative(state.vault, state.file).split(path.sep).join('/');
+    state.mtimes.set(rel, Date.now());
+    refreshTree();
+  }
 }
 
 function flushSave() {
@@ -637,6 +689,16 @@ $('btn-open-vault').onclick = openVaultDialog;
 $('btn-open-vault-2').onclick = openVaultDialog;
 $('btn-new-note').onclick = () => createNote(currentFolderRel());
 $('btn-new-folder').onclick = () => createFolder(currentFolderRel());
+$('btn-sort').onclick = (e) => {
+  e.stopPropagation();
+  if (!state.vault) return;
+  const entries = SORT_MODES.map(([mode, label]) => [
+    (state.sort === mode ? '✓ ' : '　 ') + label,
+    () => setSort(mode)
+  ]);
+  const rect = e.currentTarget.getBoundingClientRect();
+  showMenu(entries, rect.left, rect.bottom + 4);
+};
 $('btn-collapse-all').onclick = () => {
   if (!state.vault) return;
   state.expanded.clear();

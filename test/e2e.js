@@ -66,6 +66,11 @@ async function step(name, fn) {
       assert.ok(files.some((t) => t.includes('教學')), 'tree should list 教學 folder');
     });
 
+    await step('外部新增的檔案會自動出現在側欄(免手動重整)', async () => {
+      fs.writeFileSync(path.join(vault, '外部新增筆記.md'), '# 外部新增\n');
+      await win.waitForSelector('#file-tree .tree-item.file:has-text("外部新增筆記")', { timeout: 5000 });
+    });
+
     await step('點擊筆記後,編輯器與預覽都正確載入', async () => {
       await win.click('#file-tree .tree-item.file:has-text("歡迎")');
       const text = await win.inputValue('#editor');

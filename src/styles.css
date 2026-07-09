@@ -164,10 +164,13 @@ button.primary:hover { background: var(--accent); }
   box-shadow: inset 0 0 0 1px var(--item-active-border);
   color: var(--heading);
 }
-.tree-item .icon { flex: none; width: 14px; text-align: center; color: var(--text-dim); font-size: 11px; }
+.tree-item .icon { flex: none; width: 16px; text-align: center; color: var(--text-dim); font-size: 11px; }
 .tree-item .name { overflow: hidden; text-overflow: ellipsis; }
 .tree-children { margin-left: 15px; }
 .tree-item.folder { color: var(--text-dim); font-weight: 550; }
+/* 資料夾展開/收合三角形放大、提亮,讓層級一眼可辨 */
+.tree-item.folder .icon { font-size: 15px; line-height: 1; color: var(--accent); }
+.tree-item.folder:hover .icon { color: var(--accent-dim); }
 
 /* ---- main panes ---- */
 #main { flex: 1; display: flex; min-width: 0; }

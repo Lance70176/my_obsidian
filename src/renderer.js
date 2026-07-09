@@ -36,6 +36,8 @@ const state = {
 
 let autosaveTimer = null;
 let previewTimer = null;
+let vaultWatcher = null;
+let watchTimer = null;
 
 /* ---------------- modal helpers ---------------- */
 
@@ -97,6 +99,7 @@ function loadVault(dir) {
   els.vaultName.textContent = path.basename(dir);
   document.title = `MyObsidian — ${path.basename(dir)}`;
   refreshTree();
+  watchVault(dir);
   syncClaudeMemory(true);
   const lastFile = localStorage.getItem('lastFile');
   if (lastFile && lastFile.startsWith(dir + path.sep) && fs.existsSync(lastFile)) {
@@ -118,6 +121,36 @@ function refreshTree() {
   }));
   renderTree(notes);
   schedulePreview();
+}
+
+// Snapshot of the current note set — used to tell an added/removed/renamed
+// file (which must refresh the tree) from a content-only edit (which need not).
+function noteSetKey(notes) {
+  return [...notes].sort().join('\n');
+}
+
+// Watch the vault so files created/deleted/renamed outside the app (Finder,
+// sync, another editor) appear in the sidebar without a manual refresh. A
+// recursive watch fires a burst of events, so debounce; and only re-render
+// when the note *set* actually changed, to avoid churn on every autosave.
+function watchVault(dir) {
+  if (vaultWatcher) {
+    vaultWatcher.close();
+    vaultWatcher = null;
+  }
+  try {
+    vaultWatcher = fs.watch(dir, { recursive: true }, () => {
+      clearTimeout(watchTimer);
+      watchTimer = setTimeout(() => {
+        if (!state.vault) return;
+        try {
+          const before = noteSetKey([...state.mtimes.keys()]);
+          const { notes } = walkVault(state.vault, null);
+          if (noteSetKey(notes) !== before) refreshTree();
+        } catch { /* vault may be mid-move; ignore and wait for the next event */ }
+      }, 300);
+    });
+  } catch { /* recursive watch unsupported or dir unreadable — skip live refresh */ }
 }
 
 /* ---- 檔案排序 ---- */
@@ -192,7 +225,7 @@ function renderNode(node, relBase) {
     const item = document.createElement('div');
     item.className = 'tree-item folder';
     item.dataset.folder = rel;
-    item.innerHTML = `<span class="icon">${isOpen ? '▾' : '▸'}</span><span class="name"></span>`;
+    item.innerHTML = `<span class="icon chevron${isOpen ? ' open' : ''}"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></span><span class="name"></span>`;
     item.querySelector('.name').textContent = name;
     item.onclick = () => {
       state.expanded.has(rel) ? state.expanded.delete(rel) : state.expanded.add(rel);

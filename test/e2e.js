@@ -117,6 +117,29 @@ async function step(name, fn) {
       assert.ok(await win.isVisible('#preview'));
     });
 
+    await step('⌘F 文件內搜尋:標亮、計數、跳轉與關閉', async () => {
+      await win.fill('#editor', '# 搜尋測試\n\napple 一段文字 apple\n\n第三個 Apple 在這裡。');
+      await win.keyboard.press('Meta+f');
+      await win.waitForSelector('#find-bar', { state: 'visible' });
+      await win.fill('#find-input', 'apple');
+      // 大小寫不敏感:三個 apple/Apple 都要找到,從第一個開始
+      await win.waitForFunction(() => document.getElementById('find-count').textContent === '1/3');
+      assert.strictEqual(await win.$$eval('#editor-highlights mark', (m) => m.length), 3);
+      assert.strictEqual(await win.$$eval('#editor-highlights mark.cur', (m) => m.length), 1);
+      // 預覽區同步用 Highlight API 標亮(預覽重繪有 120ms debounce,用等待式檢查)
+      await win.waitForFunction(() => CSS.highlights.has('find-match'), null, { timeout: 5000 });
+      // Enter 跳下一個,⇧Enter 跳回
+      await win.keyboard.press('Enter');
+      assert.strictEqual(await win.textContent('#find-count'), '2/3');
+      await win.keyboard.press('Shift+Enter');
+      assert.strictEqual(await win.textContent('#find-count'), '1/3');
+      // Esc 關閉並清除所有標亮
+      await win.keyboard.press('Escape');
+      assert.strictEqual(await win.isVisible('#find-bar'), false);
+      assert.strictEqual(await win.$$eval('#editor-highlights mark', (m) => m.length), 0);
+      assert.strictEqual(await win.evaluate(() => CSS.highlights.has('find-match')), false);
+    });
+
     await step('點擊不存在的 [[wikilink]] 會詢問並建立新筆記', async () => {
       await win.fill('#editor', '# 測試\n\n連到 [[我的新想法]]。');
       await win.waitForSelector('#preview a.wikilink.broken');

@@ -16,6 +16,7 @@ const els = {
   editorPane: $('editor-pane'),
   previewPane: $('preview-pane'),
   editor: $('editor'),
+  editorHl: $('editor-highlights'),
   preview: $('preview'),
   statusFile: $('status-file'),
   statusCount: $('status-count'),
@@ -417,6 +418,7 @@ function openFile(absPath) {
   renderPreview();
   updateStatus();
   markActiveTreeItem();
+  if (find.open) updateFind({ goto: false });
   if (state.mode !== 'preview') els.editor.focus();
 }
 
@@ -428,6 +430,7 @@ function markActiveTreeItem() {
 }
 
 function showEmpty(hasFile) {
+  if (!hasFile && find.open) closeFind();
   els.empty.hidden = hasFile;
   els.editorPane.hidden = !hasFile;
   els.previewPane.hidden = !hasFile;
@@ -488,7 +491,12 @@ function previewRenderer() {
 function renderPreview() {
   if (!state.file) return;
   els.preview.innerHTML = previewRenderer().renderBody(els.editor.value);
-  renderMermaidBlocks(els.preview, { theme: state.theme === 'light' ? 'default' : 'dark' });
+  const done = renderMermaidBlocks(els.preview, { theme: state.theme === 'light' ? 'default' : 'dark' });
+  // 預覽重繪會失效舊的 highlight Range,重新計算(mermaid 置換完再補一次)
+  if (find.open) {
+    renderPreviewHighlights();
+    done.then(() => { if (find.open) renderPreviewHighlights(); });
+  }
 }
 
 /* ---------------- mermaid ---------------- */
@@ -585,6 +593,192 @@ els.preview.addEventListener('click', async (e) => {
     if (fs.existsSync(abs)) openFile(abs);
   }
 });
+
+/* ---------------- 文件內搜尋 (⌘F) ---------------- */
+
+// 編輯區:在 textarea 底下鋪一層同排版的鏡像 div,用 <mark> 標亮所有符合。
+// 預覽區:用 CSS Custom Highlight API 標亮,不改動渲染後的 DOM。
+const find = {
+  open: false,
+  query: '',
+  matches: [],       // 編輯區各符合的起始位置
+  index: -1,         // 編輯區目前所在的符合
+  previewRanges: [],
+  previewIndex: -1
+};
+
+const escapeHtml = (s) => s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+
+// 大小寫不敏感的純文字搜尋,回傳所有起始位置。
+function findPositions(text, query) {
+  const positions = [];
+  const hay = text.toLowerCase();
+  const needle = query.toLowerCase();
+  for (let i = hay.indexOf(needle); i !== -1; i = hay.indexOf(needle, i + needle.length)) {
+    positions.push(i);
+  }
+  return positions;
+}
+
+function openFind() {
+  if (!state.file) return;
+  $('find-bar').hidden = false;
+  find.open = true;
+  const input = $('find-input');
+  const sel = els.editor.value.slice(els.editor.selectionStart, els.editor.selectionEnd);
+  if (sel && sel.length <= 200 && !sel.includes('\n')) input.value = sel;
+  input.focus();
+  input.select();
+  updateFind();
+}
+
+function closeFind() {
+  find.open = false;
+  find.query = '';
+  find.matches = [];
+  find.index = -1;
+  $('find-bar').hidden = true;
+  els.editorHl.textContent = '';
+  clearPreviewHighlights();
+  if (state.file && state.mode !== 'preview') els.editor.focus();
+}
+
+function clearPreviewHighlights() {
+  if (window.CSS && CSS.highlights) {
+    CSS.highlights.delete('find-match');
+    CSS.highlights.delete('find-current');
+  }
+  find.previewRanges = [];
+  find.previewIndex = -1;
+}
+
+// 重新計算符合並更新兩邊標亮。goto=false 用於內容變動時,只更新不跳轉。
+function updateFind({ goto = true } = {}) {
+  if (!find.open) return;
+  find.query = $('find-input').value;
+  if (!find.query) {
+    find.matches = [];
+    find.index = -1;
+    els.editorHl.textContent = '';
+    clearPreviewHighlights();
+    $('find-count').textContent = '';
+    return;
+  }
+  find.matches = findPositions(els.editor.value, find.query);
+  // 從編輯游標所在處往後找起;後面沒有就繞回第一個
+  const from = els.editor.selectionStart || 0;
+  const at = find.matches.findIndex((p) => p + find.query.length >= from);
+  find.index = find.matches.length ? Math.max(0, at) : -1;
+  renderEditorHighlights();
+  renderPreviewHighlights();
+  updateFindCount();
+  if (goto) scrollToCurrentMatch();
+}
+
+function renderEditorHighlights() {
+  if (!find.matches.length) { els.editorHl.textContent = ''; return; }
+  const text = els.editor.value;
+  const len = find.query.length;
+  let html = '';
+  let last = 0;
+  find.matches.forEach((pos, i) => {
+    html += escapeHtml(text.slice(last, pos));
+    html += `<mark${i === find.index ? ' class="cur"' : ''}>${escapeHtml(text.slice(pos, pos + len))}</mark>`;
+    last = pos + len;
+  });
+  els.editorHl.innerHTML = html + escapeHtml(text.slice(last));
+  syncEditorHlScroll();
+}
+
+function renderPreviewHighlights() {
+  if (!(window.CSS && CSS.highlights)) return;
+  CSS.highlights.delete('find-match');
+  CSS.highlights.delete('find-current');
+  find.previewRanges = [];
+  if (!find.open || !find.query) { find.previewIndex = -1; return; }
+  const needle = find.query.toLowerCase();
+  const ranges = [];
+  const walker = document.createTreeWalker(els.preview, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const hay = node.nodeValue.toLowerCase();
+    for (let i = hay.indexOf(needle); i !== -1; i = hay.indexOf(needle, i + needle.length)) {
+      const r = new Range();
+      r.setStart(node, i);
+      r.setEnd(node, i + needle.length);
+      ranges.push(r);
+    }
+  }
+  find.previewRanges = ranges;
+  if (!ranges.length) { find.previewIndex = -1; return; }
+  if (state.mode === 'preview') {
+    find.previewIndex = Math.min(Math.max(find.previewIndex, 0), ranges.length - 1);
+  } else {
+    // 分割模式:兩邊符合數一致時才同步「目前」標記(Markdown 語法會讓數量不同)
+    find.previewIndex = ranges.length === find.matches.length ? find.index : -1;
+  }
+  CSS.highlights.set('find-match', new Highlight(...ranges));
+  if (find.previewIndex >= 0) CSS.highlights.set('find-current', new Highlight(ranges[find.previewIndex]));
+}
+
+function updateFindCount() {
+  const inPreview = state.mode === 'preview';
+  const total = inPreview ? find.previewRanges.length : find.matches.length;
+  const cur = inPreview ? find.previewIndex : find.index;
+  $('find-count').textContent = total ? `${cur + 1}/${total}` : '0/0';
+}
+
+// 往前/往後跳一個符合(dir = ±1),循環繞圈。
+function findStep(dir) {
+  if (state.mode === 'preview') {
+    const n = find.previewRanges.length;
+    if (!n) return;
+    find.previewIndex = (find.previewIndex + dir + n) % n;
+    CSS.highlights.set('find-current', new Highlight(find.previewRanges[find.previewIndex]));
+  } else {
+    const n = find.matches.length;
+    if (!n) return;
+    find.index = (find.index + dir + n) % n;
+    renderEditorHighlights();
+    if (find.previewRanges.length === n) {
+      find.previewIndex = find.index;
+      CSS.highlights.set('find-current', new Highlight(find.previewRanges[find.previewIndex]));
+    }
+  }
+  updateFindCount();
+  scrollToCurrentMatch();
+}
+
+function scrollToCurrentMatch() {
+  if (state.mode !== 'preview') {
+    const cur = els.editorHl.querySelector('mark.cur');
+    if (cur) {
+      els.editor.scrollTop = Math.max(0, cur.offsetTop - els.editor.clientHeight * 0.4);
+      syncEditorHlScroll();
+    }
+    // 游標跟著目前符合,之後重新輸入時從這裡接續往後找
+    if (find.index >= 0) {
+      const pos = find.matches[find.index];
+      els.editor.setSelectionRange(pos, pos + find.query.length);
+    }
+  }
+  if (state.mode !== 'edit' && find.previewIndex >= 0) {
+    const rect = find.previewRanges[find.previewIndex].getBoundingClientRect();
+    const pane = els.previewPane;
+    pane.scrollTop += rect.top - pane.getBoundingClientRect().top - pane.clientHeight * 0.4;
+  }
+}
+
+function syncEditorHlScroll() { els.editorHl.scrollTop = els.editor.scrollTop; }
+els.editor.addEventListener('scroll', syncEditorHlScroll);
+
+$('find-input').addEventListener('input', () => updateFind());
+$('find-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); findStep(e.shiftKey ? -1 : 1); }
+  if (e.key === 'Escape') { e.preventDefault(); closeFind(); }
+});
+$('find-prev').onclick = () => findStep(-1);
+$('find-next').onclick = () => findStep(1);
+$('find-close').onclick = () => closeFind();
 
 /* ---------------- export ---------------- */
 
@@ -702,6 +896,7 @@ function setMode(mode) {
     btn.classList.toggle('active', btn.dataset.mode === mode);
   }
   if (mode !== 'edit') renderPreview();
+  if (find.open) updateFindCount();
 }
 
 function setTheme(theme) {
@@ -719,6 +914,7 @@ els.editor.addEventListener('input', () => {
   state.dirty = true;
   updateStatus();
   schedulePreview();
+  if (find.open) updateFind({ goto: false });
   clearTimeout(autosaveTimer);
   autosaveTimer = setTimeout(saveFile, 700);
 });
@@ -733,10 +929,12 @@ els.editor.addEventListener('keydown', (e) => {
 });
 
 window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && find.open && !modalOpen) { closeFind(); return; }
   const mod = e.metaKey || e.ctrlKey;
   if (!mod) return;
   if (e.key === 's') { e.preventDefault(); flushSave(); }
   if (e.key === 'n') { e.preventDefault(); createNote(currentFolderRel()); }
+  if (e.key === 'f') { e.preventDefault(); openFind(); }
   if (e.key === '1') { e.preventDefault(); setMode('edit'); }
   if (e.key === '2') { e.preventDefault(); setMode('split'); }
   if (e.key === '3') { e.preventDefault(); setMode('preview'); }
@@ -815,4 +1013,4 @@ const lastVault = localStorage.getItem('lastVault');
 if (lastVault && fs.existsSync(lastVault)) loadVault(lastVault);
 
 // Automation hook for test/e2e.js.
-window.__myob = { state, loadVault, openFile, setMode, refreshTree };
+window.__myob = { state, loadVault, openFile, setMode, refreshTree, openFind, closeFind };

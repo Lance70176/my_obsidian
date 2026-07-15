@@ -126,6 +126,9 @@ button.primary:hover { background: var(--accent); }
 }
 #sidebar-actions button:hover { background: var(--bg-hover); color: var(--text); }
 #sidebar-actions svg { width: 16px; height: 16px; }
+/* 全部收合後圖示反轉,表示可展開還原 */
+#btn-collapse-all svg { transition: transform 0.15s ease; }
+#btn-collapse-all.expand-mode svg { transform: rotate(180deg); }
 
 #vault-header {
   padding: 6px 12px 6px;

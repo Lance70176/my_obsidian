@@ -236,7 +236,26 @@ async function step(name, fn) {
       assert.ok(fs.existsSync(path.join(vault, '按鈕資料夾')));
     });
 
-    await step('「全部收合」按鈕收合所有展開的資料夾', async () => {
+    await step('「全部收合」收完變展開鈕,可還原收合前的展開狀態', async () => {
+      // 確保「教學」是展開的(子筆記「匯出說明」可見)
+      if (!(await win.isVisible('#file-tree .tree-item.file:has-text("匯出說明")'))) {
+        await win.click('#file-tree .tree-item.folder:has-text("教學")');
+        await win.waitForSelector('#file-tree .tree-item.file:has-text("匯出說明")');
+      }
+      await win.click('#btn-collapse-all');
+      await win.waitForFunction(() => document.querySelectorAll('#file-tree .tree-children').length === 0);
+      assert.ok(
+        await win.evaluate(() => document.getElementById('btn-collapse-all').classList.contains('expand-mode')),
+        '收合後按鈕應切換成展開圖示'
+      );
+      // 再點一下:還原剛才的展開狀態,「匯出說明」重新可見
+      await win.click('#btn-collapse-all');
+      await win.waitForSelector('#file-tree .tree-item.file:has-text("匯出說明")');
+      assert.ok(
+        await win.evaluate(() => !document.getElementById('btn-collapse-all').classList.contains('expand-mode')),
+        '展開後按鈕應切回收合圖示'
+      );
+      // 收回去,後續步驟以全收合狀態繼續
       await win.click('#btn-collapse-all');
       await win.waitForFunction(() => document.querySelectorAll('#file-tree .tree-children').length === 0);
     });

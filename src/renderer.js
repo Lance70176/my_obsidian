@@ -227,6 +227,7 @@ function buildTree(noteRelPaths) {
 }
 
 function renderTree(notes) {
+  updateCollapseBtn();
   const filter = els.filter.value.trim().toLowerCase();
   els.tree.textContent = '';
   if (filter) {
@@ -960,10 +961,37 @@ $('btn-sort').onclick = (e) => {
   const rect = e.currentTarget.getBoundingClientRect();
   showMenu(entries, rect.left, rect.bottom + 4);
 };
+/* ---- 全部收合 / 展開切換 ---- */
+
+// 有展開的資料夾時是「全部收合」;全收起來後圖示反轉變「展開」,
+// 再點一下還原收合前的展開狀態(記錄存 localStorage,重啟也有效)。
+function updateCollapseBtn() {
+  const btn = $('btn-collapse-all');
+  const collapsed = state.expanded.size === 0;
+  btn.classList.toggle('expand-mode', collapsed);
+  btn.title = collapsed ? '展開資料夾（還原收合前的展開狀態）' : '全部收合';
+}
+
+// 從筆記清單推出所有資料夾的相對路徑(沒有還原記錄時全部展開用)。
+function allFolderRels() {
+  const set = new Set();
+  for (const rel of state.mtimes.keys()) {
+    const parts = rel.split('/');
+    for (let i = 1; i < parts.length; i++) set.add(parts.slice(0, i).join('/'));
+  }
+  return set;
+}
+
 $('btn-collapse-all').onclick = () => {
   if (!state.vault) return;
-  state.expanded.clear();
-  localStorage.setItem('expanded', '[]');
+  if (state.expanded.size > 0) {
+    localStorage.setItem('prevExpanded', JSON.stringify([...state.expanded]));
+    state.expanded.clear();
+  } else {
+    const prev = JSON.parse(localStorage.getItem('prevExpanded') || '[]');
+    for (const rel of prev.length ? prev : allFolderRels()) state.expanded.add(rel);
+  }
+  localStorage.setItem('expanded', JSON.stringify([...state.expanded]));
   refreshTree();
 };
 $('btn-theme').onclick = () => setTheme(state.theme === 'light' ? 'dark' : 'light');
@@ -1009,6 +1037,7 @@ if (savedWidth) $('sidebar').style.width = savedWidth;
 setTheme(state.theme);
 setMode(state.mode);
 showEmpty(false);
+updateCollapseBtn();
 const lastVault = localStorage.getItem('lastVault');
 if (lastVault && fs.existsSync(lastVault)) loadVault(lastVault);
 

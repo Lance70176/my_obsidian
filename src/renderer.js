@@ -972,24 +972,14 @@ function updateCollapseBtn() {
   btn.title = collapsed ? '展開資料夾（還原收合前的展開狀態）' : '全部收合';
 }
 
-// 從筆記清單推出所有資料夾的相對路徑(沒有還原記錄時全部展開用)。
-function allFolderRels() {
-  const set = new Set();
-  for (const rel of state.mtimes.keys()) {
-    const parts = rel.split('/');
-    for (let i = 1; i < parts.length; i++) set.add(parts.slice(0, i).join('/'));
-  }
-  return set;
-}
-
 $('btn-collapse-all').onclick = () => {
   if (!state.vault) return;
   if (state.expanded.size > 0) {
     localStorage.setItem('prevExpanded', JSON.stringify([...state.expanded]));
     state.expanded.clear();
   } else {
-    const prev = JSON.parse(localStorage.getItem('prevExpanded') || '[]');
-    for (const rel of prev.length ? prev : allFolderRels()) state.expanded.add(rel);
+    // 只還原收合前有展開的部分;沒有紀錄就維持不動
+    for (const rel of JSON.parse(localStorage.getItem('prevExpanded') || '[]')) state.expanded.add(rel);
   }
   localStorage.setItem('expanded', JSON.stringify([...state.expanded]));
   refreshTree();

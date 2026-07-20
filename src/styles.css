@@ -182,6 +182,9 @@ button.primary:hover { background: var(--accent); }
   color: var(--text-dim);
   font-variant-numeric: tabular-nums;
 }
+/* 拖曳排序時的插入位置指示線 */
+.tree-item.drop-before { box-shadow: inset 0 2px 0 var(--accent); }
+.tree-item.drop-after { box-shadow: inset 0 -2px 0 var(--accent); }
 .tree-children { margin-left: 15px; }
 .tree-item.folder { color: var(--text-dim); font-weight: 550; }
 /* 資料夾展開/收合圖示:Obsidian 風格 chevron,展開時旋轉 90°,清楚可辨 */
@@ -203,6 +206,59 @@ button.primary:hover { background: var(--accent); }
 }
 .tree-item .icon.chevron.open { transform: rotate(90deg); }
 .tree-item.folder:hover .icon.chevron { color: var(--text); }
+
+/* ---- 暫存區(拖入的外部 md,獨立於 Vault 樹) ---- */
+#staging-section {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  max-height: 40%;
+  border-top: 1px solid var(--border);
+  padding: 4px 6px 10px;
+  background: color-mix(in srgb, var(--accent) 4%, transparent);
+}
+#staging-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 6px;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  flex: none;
+}
+#staging-count {
+  font-variant-numeric: tabular-nums;
+  background: var(--bg-active);
+  border-radius: 8px;
+  padding: 0 7px;
+  line-height: 16px;
+}
+#staging-list { overflow-y: auto; user-select: none; }
+#staging-list .tree-item .icon { font-size: 12px; }
+
+/* ---- 拖檔進視窗的提示遮罩 ---- */
+#drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+  pointer-events: none; /* 讓 drop 事件穿透到底下的視窗 */
+}
+.drop-inner {
+  padding: 22px 40px;
+  border: 2px dashed var(--accent);
+  border-radius: 14px;
+  background: var(--bg-panel);
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 600;
+}
 
 /* ---- main panes ---- */
 #main { flex: 1; display: flex; min-width: 0; position: relative; }

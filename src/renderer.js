@@ -1,7 +1,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { ipcRenderer } = require('electron');
+const { ipcRenderer, webUtils } = require('electron');
 const { createRenderer } = require('../lib/markdown');
 const { renderNoteHtml, exportVault, walkVault, buildNoteIndex } = require('../lib/exporter');
 const { syncToVault } = require('../lib/claude-sync');
@@ -33,7 +33,9 @@ const state = {
   mtimes: new Map(),
   ctimes: new Map(),
   resolveNote: () => null,
-  expanded: new Set(JSON.parse(localStorage.getItem('expanded') || '[]'))
+  expanded: new Set(JSON.parse(localStorage.getItem('expanded') || '[]')),
+  staged: JSON.parse(localStorage.getItem('stagedFiles') || '[]'),
+  manualOrder: JSON.parse(localStorage.getItem('manualOrder') || '{}')
 };
 
 let autosaveTimer = null;
@@ -104,7 +106,8 @@ function loadVault(dir) {
   watchVault(dir);
   syncClaudeMemory(true);
   const lastFile = localStorage.getItem('lastFile');
-  if (lastFile && lastFile.startsWith(dir + path.sep) && fs.existsSync(lastFile)) {
+  const known = lastFile && (lastFile.startsWith(dir + path.sep) || state.staged.includes(lastFile));
+  if (known && fs.existsSync(lastFile)) {
     openFile(lastFile);
   } else {
     showEmpty(false);
@@ -168,7 +171,8 @@ const SORT_MODES = [
   ['mtime-desc', '修改時間（新→舊）'],
   ['mtime-asc', '修改時間（舊→新）'],
   ['ctime-desc', '建立時間（新→舊）'],
-  ['ctime-asc', '建立時間（舊→新）']
+  ['ctime-asc', '建立時間（舊→新）'],
+  ['manual', '自訂（拖曳排序）']
 ];
 
 function sortFiles(rels) {
@@ -239,9 +243,21 @@ function renderTree(notes) {
   els.tree.appendChild(renderNode(buildTree(notes), ''));
 }
 
+// 自訂排序:依儲存的手動順序排,沒記錄過的項目照名稱附在後面。
+function manualNames(parentRel, kind, names) {
+  const saved = (state.manualOrder[parentRel] || {})[kind] || [];
+  const idx = new Map(saved.map((n, i) => [n, i]));
+  return [...names].sort((a, b) => {
+    const ia = idx.has(a) ? idx.get(a) : Infinity;
+    const ib = idx.has(b) ? idx.get(b) : Infinity;
+    return ia !== ib ? ia - ib : a.localeCompare(b, 'zh-Hant');
+  });
+}
+
 function renderNode(node, relBase) {
   const frag = document.createDocumentFragment();
-  const folderNames = [...node.folders.keys()].sort((a, b) => a.localeCompare(b, 'zh-Hant'));
+  let folderNames = [...node.folders.keys()].sort((a, b) => a.localeCompare(b, 'zh-Hant'));
+  if (state.sort === 'manual') folderNames = manualNames(relBase, 'folders', folderNames);
   for (const name of folderNames) {
     const rel = relBase ? `${relBase}/${name}` : name;
     const isOpen = state.expanded.has(rel);
@@ -256,6 +272,7 @@ function renderNode(node, relBase) {
       refreshTree();
     };
     item.oncontextmenu = (e) => showContextMenu(e, { type: 'folder', rel });
+    enableTreeDrag(item, 'folder', rel);
     frag.appendChild(item);
     if (isOpen) {
       const children = document.createElement('div');
@@ -264,7 +281,11 @@ function renderNode(node, relBase) {
       frag.appendChild(children);
     }
   }
-  for (const rel of sortFiles(node.files)) {
+  const files = state.sort === 'manual'
+    ? manualNames(relBase, 'files', node.files.map((r) => r.split('/').pop()))
+        .map((n) => (relBase ? `${relBase}/${n}` : n))
+    : sortFiles(node.files);
+  for (const rel of files) {
     const name = rel.split('/').pop().replace(/\.(md|markdown)$/i, '');
     frag.appendChild(fileItem(rel, name));
   }
@@ -291,7 +312,75 @@ function fileItem(rel, label) {
   item.title = [rel, mtime && `修改：${mtime}`, ctime && `建立：${ctime}`].filter(Boolean).join('\n');
   item.onclick = () => openFile(abs);
   item.oncontextmenu = (e) => showContextMenu(e, { type: 'file', rel });
+  enableTreeDrag(item, 'file', rel);
   return item;
+}
+
+/* ---------------- 側欄拖曳排序(自訂排序) ---------------- */
+
+let treeDrag = null; // { kind: 'folder' | 'file', rel, parent, name }
+
+const parentOf = (rel) => rel.split('/').slice(0, -1).join('/');
+
+function clearDropMarks() {
+  for (const el of document.querySelectorAll('.tree-item.drop-before, .tree-item.drop-after')) {
+    el.classList.remove('drop-before', 'drop-after');
+  }
+}
+
+// 同一層、同類型(檔案對檔案、資料夾對資料夾)的項目可互相拖曳換位。
+function enableTreeDrag(item, kind, rel) {
+  item.draggable = true;
+  item.addEventListener('dragstart', (e) => {
+    // 搜尋過濾中看到的是跨資料夾的扁平清單,拖曳排序無意義
+    if (els.filter.value.trim()) { e.preventDefault(); return; }
+    treeDrag = { kind, rel, parent: parentOf(rel), name: rel.split('/').pop() };
+    e.dataTransfer.effectAllowed = 'move';
+  });
+  const accepts = () => treeDrag && treeDrag.kind === kind && treeDrag.rel !== rel && parentOf(rel) === treeDrag.parent;
+  item.addEventListener('dragover', (e) => {
+    if (!accepts()) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const r = item.getBoundingClientRect();
+    const before = e.clientY < r.top + r.height / 2;
+    item.classList.toggle('drop-before', before);
+    item.classList.toggle('drop-after', !before);
+  });
+  item.addEventListener('dragleave', () => item.classList.remove('drop-before', 'drop-after'));
+  item.addEventListener('drop', (e) => {
+    if (!accepts()) return;
+    e.preventDefault();
+    const r = item.getBoundingClientRect();
+    reorderSibling(treeDrag, rel.split('/').pop(), e.clientY < r.top + r.height / 2);
+    treeDrag = null;
+    clearDropMarks();
+  });
+  item.addEventListener('dragend', () => { treeDrag = null; clearDropMarks(); });
+}
+
+// 以畫面上目前的顯示順序為基準,把拖曳項插到目標前/後,存成該層的自訂順序。
+// 在其他排序模式下拖曳會自動切到「自訂排序」,當下的順序就此凍結為起點。
+function reorderSibling(drag, targetName, before) {
+  const selector = drag.kind === 'folder' ? '.tree-item.folder' : '.tree-item.file';
+  const dataKey = drag.kind === 'folder' ? 'folder' : 'file';
+  const names = [...els.tree.querySelectorAll(selector)]
+    .map((el) => el.dataset[dataKey])
+    .filter((r) => r && parentOf(r) === drag.parent)
+    .map((r) => r.split('/').pop())
+    .filter((n) => n !== drag.name);
+  const at = names.indexOf(targetName);
+  if (at === -1) return;
+  names.splice(before ? at : at + 1, 0, drag.name);
+  const saved = state.manualOrder[drag.parent] || (state.manualOrder[drag.parent] = {});
+  saved[drag.kind === 'folder' ? 'folders' : 'files'] = names;
+  localStorage.setItem('manualOrder', JSON.stringify(state.manualOrder));
+  if (state.sort !== 'manual') {
+    setSort('manual');
+    els.statusSave.textContent = '已切換為自訂排序（排序選單可切回）';
+  } else {
+    refreshTree();
+  }
 }
 
 /* ---------------- context menu ---------------- */
@@ -340,6 +429,177 @@ function showContextMenu(event, target) {
 function hideContextMenu() { $('context-menu').hidden = true; }
 window.addEventListener('click', hideContextMenu);
 window.addEventListener('blur', hideContextMenu);
+
+/* ---------------- 暫存區(拖入的外部 md) ---------------- */
+
+// 拖進視窗的外部 Markdown 檔先放這裡,跟 Vault 樹分開;右鍵可選擇複製進 Vault。
+// 清單只存絕對路徑(localStorage),檔案本體留在原處。
+
+function saveStaged() {
+  localStorage.setItem('stagedFiles', JSON.stringify(state.staged));
+}
+
+function isMarkdownPath(p) {
+  try {
+    return /\.(md|markdown)$/i.test(p) && fs.statSync(p).isFile();
+  } catch {
+    return false;
+  }
+}
+
+// 回傳實際新增的數量;不論新舊,開啟第一個拖入的檔案。
+function addStagedFiles(paths) {
+  const valid = paths.filter(isMarkdownPath);
+  let added = 0;
+  for (const p of valid) {
+    if (!state.staged.includes(p)) {
+      state.staged.push(p);
+      added++;
+    }
+  }
+  if (added) saveStaged();
+  renderStaging();
+  if (valid.length) openFile(valid[0]);
+  return added;
+}
+
+function removeStaged(abs) {
+  state.staged = state.staged.filter((p) => p !== abs);
+  saveStaged();
+  renderStaging();
+  if (state.file === abs) {
+    state.file = null;
+    showEmpty(false);
+  }
+}
+
+let stagedDragIdx = null;
+
+function renderStaging() {
+  // 原始檔已被移走/刪除的項目直接剔除
+  const existing = state.staged.filter((p) => fs.existsSync(p));
+  if (existing.length !== state.staged.length) {
+    state.staged = existing;
+    saveStaged();
+  }
+  const section = $('staging-section');
+  section.hidden = state.staged.length === 0;
+  $('staging-count').textContent = state.staged.length || '';
+  const list = $('staging-list');
+  list.textContent = '';
+  state.staged.forEach((abs, i) => {
+    const item = document.createElement('div');
+    item.className = 'tree-item file staged' + (abs === state.file ? ' active' : '');
+    item.dataset.staged = abs;
+    item.innerHTML = `<span class="icon">📄</span><span class="name"></span>`;
+    item.querySelector('.name').textContent = path.basename(abs).replace(/\.(md|markdown)$/i, '');
+    item.title = abs;
+    item.onclick = () => openFile(abs);
+    item.oncontextmenu = (e) => showStagedContextMenu(e, abs);
+    // 暫存清單本身也能拖曳換位
+    item.draggable = true;
+    item.addEventListener('dragstart', (e) => {
+      stagedDragIdx = i;
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    item.addEventListener('dragover', (e) => {
+      if (stagedDragIdx === null || stagedDragIdx === i) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      const r = item.getBoundingClientRect();
+      const before = e.clientY < r.top + r.height / 2;
+      item.classList.toggle('drop-before', before);
+      item.classList.toggle('drop-after', !before);
+    });
+    item.addEventListener('dragleave', () => item.classList.remove('drop-before', 'drop-after'));
+    item.addEventListener('drop', (e) => {
+      if (stagedDragIdx === null || stagedDragIdx === i) return;
+      e.preventDefault();
+      const r = item.getBoundingClientRect();
+      const before = e.clientY < r.top + r.height / 2;
+      const [moved] = state.staged.splice(stagedDragIdx, 1);
+      const at = state.staged.indexOf(abs);
+      state.staged.splice(before ? at : at + 1, 0, moved);
+      stagedDragIdx = null;
+      saveStaged();
+      renderStaging();
+    });
+    item.addEventListener('dragend', () => {
+      stagedDragIdx = null;
+      clearDropMarks();
+    });
+    list.appendChild(item);
+  });
+}
+
+function showStagedContextMenu(event, abs) {
+  event.preventDefault();
+  event.stopPropagation();
+  const entries = [];
+  if (state.vault) entries.push(['⬇ 複製到 Vault', () => copyStagedToVault(abs)]);
+  entries.push(['在 Finder 顯示', () => ipcRenderer.invoke('reveal-in-finder', abs)]);
+  entries.push(['---']);
+  entries.push(['✕ 從暫存區移除', () => removeStaged(abs), 'danger']);
+  showMenu(entries, event.clientX, event.clientY);
+}
+
+// 複製到 Vault 根目錄(同名自動加序號);複製完成後暫存項目功成身退,
+// 改開 Vault 內的副本,原始檔保留在原處不動。
+function copyStagedToVault(abs) {
+  if (!state.vault) return;
+  if (!fs.existsSync(abs)) return renderStaging();
+  const dest = uniquePath(state.vault, path.basename(abs).replace(/\.(md|markdown)$/i, ''), '.md');
+  try {
+    fs.copyFileSync(abs, dest);
+  } catch (err) {
+    return modal({ title: '複製失敗', message: String(err.message || err), okLabel: '知道了' });
+  }
+  state.staged = state.staged.filter((p) => p !== abs);
+  saveStaged();
+  renderStaging();
+  refreshTree();
+  openFile(dest);
+  els.statusSave.textContent = `✓ 已複製到 Vault:${path.basename(dest)}`;
+}
+
+/* ---- 拖檔進視窗 ---- */
+
+const isFileDrag = (e) => e.dataTransfer && [...e.dataTransfer.types].includes('Files');
+let dragDepth = 0;
+
+window.addEventListener('dragenter', (e) => {
+  if (!isFileDrag(e)) return;
+  e.preventDefault();
+  dragDepth++;
+  $('drop-overlay').hidden = false;
+});
+window.addEventListener('dragleave', (e) => {
+  if (!isFileDrag(e)) return;
+  if (--dragDepth <= 0) {
+    dragDepth = 0;
+    $('drop-overlay').hidden = true;
+  }
+});
+window.addEventListener('dragover', (e) => {
+  if (isFileDrag(e)) e.preventDefault();
+});
+window.addEventListener('drop', (e) => {
+  // 側欄內部排序等非檔案拖放:擋掉預設行為(例如把路徑文字插進編輯器)就好
+  if (!isFileDrag(e)) return e.preventDefault();
+  e.preventDefault();
+  dragDepth = 0;
+  $('drop-overlay').hidden = true;
+  const paths = [...e.dataTransfer.files]
+    .map((f) => {
+      try { return webUtils.getPathForFile(f); } catch { return f.path || ''; }
+    })
+    .filter(Boolean);
+  if (!paths.some(isMarkdownPath)) {
+    els.statusSave.textContent = '只支援拖入 .md / .markdown 檔案';
+    return;
+  }
+  addStagedFiles(paths);
+});
 
 /* ---------------- file operations ---------------- */
 
@@ -423,10 +683,18 @@ function openFile(absPath) {
   if (state.mode !== 'preview') els.editor.focus();
 }
 
+// 目前開啟的檔案是否在 Vault 內(暫存區的外部檔不是)
+function fileInVault() {
+  return !!(state.vault && state.file && state.file.startsWith(state.vault + path.sep));
+}
+
 function markActiveTreeItem() {
-  const rel = state.file ? path.relative(state.vault, state.file).split(path.sep).join('/') : null;
+  const rel = fileInVault() ? path.relative(state.vault, state.file).split(path.sep).join('/') : null;
   for (const item of els.tree.querySelectorAll('.tree-item.file')) {
     item.classList.toggle('active', item.dataset.file === rel);
+  }
+  for (const item of document.querySelectorAll('#staging-list .tree-item')) {
+    item.classList.toggle('active', item.dataset.staged === state.file);
   }
 }
 
@@ -447,8 +715,8 @@ function saveFile() {
   fs.writeFileSync(state.file, els.editor.value);
   state.dirty = false;
   updateStatus();
-  // 依修改時間排序時,存檔後讓樹狀順序即時反映
-  if (state.sort.startsWith('mtime')) {
+  // 依修改時間排序時,存檔後讓樹狀順序即時反映(暫存的外部檔不在樹裡)
+  if (state.sort.startsWith('mtime') && fileInVault()) {
     const rel = path.relative(state.vault, state.file).split(path.sep).join('/');
     state.mtimes.set(rel, Date.now());
     refreshTree();
@@ -462,7 +730,7 @@ function flushSave() {
 
 function updateStatus() {
   if (!state.file) return;
-  els.statusFile.textContent = path.relative(state.vault, state.file);
+  els.statusFile.textContent = fileInVault() ? path.relative(state.vault, state.file) : `📥 ${state.file}`;
   const text = els.editor.value;
   const cjk = (text.match(/[一-鿿㐀-䶿]/g) || []).length;
   const words = (text.match(/[A-Za-z0-9_'-]+/g) || []).length;
@@ -577,6 +845,7 @@ els.preview.addEventListener('click', async (e) => {
   if (wikiTarget) {
     const rel = state.resolveNote(wikiTarget);
     if (rel) return openFile(path.join(state.vault, ...rel.split('/')));
+    if (!state.vault) return;
     const ok = await modal({ title: '建立筆記', message: `「${wikiTarget}」不存在,要建立它嗎?`, okLabel: '建立' });
     if (ok) {
       const file = path.join(state.vault, `${wikiTarget}.md`);
@@ -942,7 +1211,7 @@ window.addEventListener('keydown', (e) => {
 });
 
 function currentFolderRel() {
-  if (!state.file) return '';
+  if (!fileInVault()) return '';
   return path.relative(state.vault, path.dirname(state.file)).split(path.sep).join('/');
 }
 
@@ -1028,8 +1297,15 @@ setTheme(state.theme);
 setMode(state.mode);
 showEmpty(false);
 updateCollapseBtn();
+renderStaging();
 const lastVault = localStorage.getItem('lastVault');
-if (lastVault && fs.existsSync(lastVault)) loadVault(lastVault);
+if (lastVault && fs.existsSync(lastVault)) {
+  loadVault(lastVault);
+} else {
+  // 沒有 Vault 也能繼續看上次開著的暫存檔
+  const lastFile = localStorage.getItem('lastFile');
+  if (lastFile && state.staged.includes(lastFile) && fs.existsSync(lastFile)) openFile(lastFile);
+}
 
 // Automation hook for test/e2e.js.
-window.__myob = { state, loadVault, openFile, setMode, refreshTree, openFind, closeFind };
+window.__myob = { state, loadVault, openFile, setMode, refreshTree, openFind, closeFind, addStagedFiles, removeStaged };

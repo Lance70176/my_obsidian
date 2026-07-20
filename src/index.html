@@ -48,6 +48,13 @@
       </div>
       <input id="tree-filter" type="text" placeholder="搜尋筆記…" spellcheck="false">
       <div id="file-tree"></div>
+      <div id="staging-section" hidden>
+        <div id="staging-header">
+          <span>📥 暫存區</span>
+          <span id="staging-count"></span>
+        </div>
+        <div id="staging-list"></div>
+      </div>
     </aside>
     <div id="sidebar-resizer"></div>
     <main id="main">
@@ -67,7 +74,7 @@
       <div id="empty-state">
         <div class="empty-inner">
           <h2>MyObsidian</h2>
-          <p>開啟一個 Vault 資料夾開始編輯 Markdown 筆記。</p>
+          <p>開啟一個 Vault 資料夾開始編輯 Markdown 筆記,<br>或直接把 .md 檔拖進視窗放入暫存區。</p>
           <button id="btn-open-vault-2">📂 開啟 Vault</button>
         </div>
       </div>
@@ -104,6 +111,10 @@
   </div>
 
   <ul id="context-menu" hidden></ul>
+
+  <div id="drop-overlay" hidden>
+    <div class="drop-inner">📥 放開以加入暫存區</div>
+  </div>
 
   <script src="../node_modules/mermaid/dist/mermaid.min.js"></script>
   <script src="renderer.js"></script>

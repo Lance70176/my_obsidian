@@ -362,6 +362,72 @@ async function step(name, fn) {
       assert.ok(treeText.includes('demo'));
     });
 
+    await step('拖入的外部 md 進暫存區並自動開啟,右鍵可複製進 Vault', async () => {
+      const ext = path.join(tmp, '外部草稿.md');
+      fs.writeFileSync(ext, '# 外部草稿\n\n暫存內容。');
+      // 拖放的核心邏輯走 addStagedFiles(OS 層拖放無法在測試中模擬)
+      await win.evaluate((p) => window.__myob.addStagedFiles([p]), ext);
+      await win.waitForSelector('#staging-section', { state: 'visible' });
+      const items = await win.$$eval('#staging-list .tree-item', (els) => els.map((e) => e.textContent.trim()));
+      assert.ok(items.some((t) => t.includes('外部草稿')), `暫存區應列出外部草稿, got: ${items}`);
+      await win.waitForFunction(() => document.querySelector('#editor').value.startsWith('# 外部草稿'));
+      // 狀態列顯示完整路徑,和 Vault 內的相對路徑區分
+      assert.ok((await win.textContent('#status-file')).includes(ext));
+      await win.click('#staging-list .tree-item:has-text("外部草稿")', { button: 'right' });
+      await win.click('#context-menu li:has-text("複製到 Vault")');
+      await win.waitForSelector('#file-tree .tree-item.file:has-text("外部草稿")');
+      assert.strictEqual(
+        fs.readFileSync(path.join(vault, '外部草稿.md'), 'utf8'),
+        '# 外部草稿\n\n暫存內容。'
+      );
+      assert.ok(fs.existsSync(ext), '原始檔應保留在原處');
+      // 複製後暫存項目移除,清單清空就隱藏
+      assert.strictEqual(await win.isVisible('#staging-section'), false);
+    });
+
+    await step('暫存項目右鍵「從暫存區移除」不會刪除原始檔', async () => {
+      const ext = path.join(tmp, '暫存移除測試.md');
+      fs.writeFileSync(ext, '# 移除測試\n');
+      await win.evaluate((p) => window.__myob.addStagedFiles([p]), ext);
+      await win.waitForSelector('#staging-list .tree-item:has-text("暫存移除測試")');
+      await win.click('#staging-list .tree-item:has-text("暫存移除測試")', { button: 'right' });
+      await win.click('#context-menu li:has-text("從暫存區移除")');
+      await win.waitForSelector('#staging-section', { state: 'hidden' });
+      assert.ok(fs.existsSync(ext), '移除只是退出暫存清單,原始檔不能被刪');
+    });
+
+    await step('側欄檔案可拖曳排序,自動切到「自訂排序」', async () => {
+      fs.writeFileSync(path.join(vault, 'AAA排序.md'), '# a\n');
+      fs.writeFileSync(path.join(vault, 'BBB排序.md'), '# b\n');
+      await win.waitForSelector('#file-tree .tree-item.file:has-text("BBB排序")', { timeout: 5000 });
+      // 模擬 HTML5 拖放:把 BBB排序 拖到 AAA排序 前面
+      await win.evaluate(() => {
+        const items = [...document.querySelectorAll('#file-tree .tree-item.file')];
+        const src = items.find((i) => i.dataset.file === 'BBB排序.md');
+        const dst = items.find((i) => i.dataset.file === 'AAA排序.md');
+        const dt = new DataTransfer();
+        src.dispatchEvent(new DragEvent('dragstart', { dataTransfer: dt, bubbles: true }));
+        const r = dst.getBoundingClientRect();
+        dst.dispatchEvent(new DragEvent('dragover', { dataTransfer: dt, bubbles: true, clientY: r.top + 2 }));
+        dst.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, clientY: r.top + 2 }));
+      });
+      await win.waitForFunction(() => localStorage.getItem('sortMode') === 'manual');
+      const order = await win.$$eval('#file-tree .tree-item.file', (els) => els.map((e) => e.dataset.file));
+      assert.ok(
+        order.indexOf('BBB排序.md') < order.indexOf('AAA排序.md'),
+        `BBB排序 應排在 AAA排序 前面, got: ${order}`
+      );
+      // 自訂順序要在重新整理後保留
+      await win.evaluate(() => window.__myob.refreshTree());
+      const after = await win.$$eval('#file-tree .tree-item.file', (els) => els.map((e) => e.dataset.file));
+      assert.ok(after.indexOf('BBB排序.md') < after.indexOf('AAA排序.md'), '重繪後自訂順序應保留');
+      // 排序選單有「自訂」且可切回名稱排序
+      await win.click('#btn-sort');
+      await win.waitForSelector('#context-menu li:has-text("自訂（拖曳排序）")');
+      await win.click('#context-menu li:has-text("名稱（A→Z）")');
+      await win.waitForFunction(() => localStorage.getItem('sortMode') === 'name-asc');
+    });
+
     console.log(`\n${passed} E2E steps passed ✅`);
   } catch (err) {
     console.error(`\n✗ E2E failed after ${passed} steps:\n`, err);

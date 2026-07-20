@@ -428,6 +428,29 @@ async function step(name, fn) {
       await win.waitForFunction(() => localStorage.getItem('sortMode') === 'name-asc');
     });
 
+    await step('自訂排序:檔案可拖到資料夾之間(同層混排,如根目錄唯一檔案)', async () => {
+      // 名稱排序下資料夾永遠在檔案前面;把 BBB排序 拖到「教學」資料夾上方,
+      // 應自動切到自訂排序並讓檔案排進資料夾之間
+      await win.evaluate(() => {
+        const items = [...document.querySelectorAll('#file-tree .tree-item')];
+        const src = items.find((i) => i.dataset.file === 'BBB排序.md');
+        const dst = items.find((i) => i.dataset.folder === '教學');
+        const dt = new DataTransfer();
+        src.dispatchEvent(new DragEvent('dragstart', { dataTransfer: dt, bubbles: true }));
+        const r = dst.getBoundingClientRect();
+        dst.dispatchEvent(new DragEvent('dragover', { dataTransfer: dt, bubbles: true, clientY: r.top + 2 }));
+        dst.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, clientY: r.top + 2 }));
+      });
+      await win.waitForFunction(() => localStorage.getItem('sortMode') === 'manual');
+      const order = await win.$$eval('#file-tree .tree-item', (els) =>
+        els.map((e) => e.dataset.folder || e.dataset.file).filter((r) => r && !r.includes('/'))
+      );
+      assert.ok(
+        order.indexOf('BBB排序.md') !== -1 && order.indexOf('BBB排序.md') < order.indexOf('教學'),
+        `BBB排序 應排在「教學」資料夾前面, got: ${order}`
+      );
+    });
+
     console.log(`\n${passed} E2E steps passed ✅`);
   } catch (err) {
     console.error(`\n✗ E2E failed after ${passed} steps:\n`, err);

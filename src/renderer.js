@@ -244,8 +244,10 @@ function renderTree(notes) {
 }
 
 // 自訂排序:依儲存的手動順序排,沒記錄過的項目照名稱附在後面。
-function manualNames(parentRel, kind, names) {
-  const saved = (state.manualOrder[parentRel] || {})[kind] || [];
+function manualNames(parentRel, names) {
+  const rec = state.manualOrder[parentRel] || {};
+  // 相容早期 {folders, files} 分開存的格式:合併成單一混排順序(資料夾在前)
+  const saved = rec.order || [...(rec.folders || []), ...(rec.files || [])];
   const idx = new Map(saved.map((n, i) => [n, i]));
   return [...names].sort((a, b) => {
     const ia = idx.has(a) ? idx.get(a) : Infinity;
@@ -256,9 +258,7 @@ function manualNames(parentRel, kind, names) {
 
 function renderNode(node, relBase) {
   const frag = document.createDocumentFragment();
-  let folderNames = [...node.folders.keys()].sort((a, b) => a.localeCompare(b, 'zh-Hant'));
-  if (state.sort === 'manual') folderNames = manualNames(relBase, 'folders', folderNames);
-  for (const name of folderNames) {
+  const appendFolder = (name) => {
     const rel = relBase ? `${relBase}/${name}` : name;
     const isOpen = state.expanded.has(rel);
     const item = document.createElement('div');
@@ -272,7 +272,7 @@ function renderNode(node, relBase) {
       refreshTree();
     };
     item.oncontextmenu = (e) => showContextMenu(e, { type: 'folder', rel });
-    enableTreeDrag(item, 'folder', rel);
+    enableTreeDrag(item, rel);
     frag.appendChild(item);
     if (isOpen) {
       const children = document.createElement('div');
@@ -280,14 +280,22 @@ function renderNode(node, relBase) {
       children.appendChild(renderNode(node.folders.get(name), rel));
       frag.appendChild(children);
     }
-  }
-  const files = state.sort === 'manual'
-    ? manualNames(relBase, 'files', node.files.map((r) => r.split('/').pop()))
-        .map((n) => (relBase ? `${relBase}/${n}` : n))
-    : sortFiles(node.files);
-  for (const rel of files) {
-    const name = rel.split('/').pop().replace(/\.(md|markdown)$/i, '');
-    frag.appendChild(fileItem(rel, name));
+  };
+  const appendFile = (rel) => {
+    frag.appendChild(fileItem(rel, rel.split('/').pop().replace(/\.(md|markdown)$/i, '')));
+  };
+  const folderNames = [...node.folders.keys()].sort((a, b) => a.localeCompare(b, 'zh-Hant'));
+  if (state.sort === 'manual') {
+    // 自訂模式:同一層的資料夾與檔案混排,像根目錄只有一個檔案(Home)時
+    // 也能拖到各資料夾之間;檔名鍵帶副檔名,不會和同名資料夾撞名。
+    const names = [...folderNames, ...sortFiles(node.files).map((r) => r.split('/').pop())];
+    for (const name of manualNames(relBase, names)) {
+      if (node.folders.has(name)) appendFolder(name);
+      else appendFile(relBase ? `${relBase}/${name}` : name);
+    }
+  } else {
+    for (const name of folderNames) appendFolder(name);
+    for (const rel of sortFiles(node.files)) appendFile(rel);
   }
   return frag;
 }
@@ -312,13 +320,13 @@ function fileItem(rel, label) {
   item.title = [rel, mtime && `修改：${mtime}`, ctime && `建立：${ctime}`].filter(Boolean).join('\n');
   item.onclick = () => openFile(abs);
   item.oncontextmenu = (e) => showContextMenu(e, { type: 'file', rel });
-  enableTreeDrag(item, 'file', rel);
+  enableTreeDrag(item, rel);
   return item;
 }
 
 /* ---------------- 側欄拖曳排序(自訂排序) ---------------- */
 
-let treeDrag = null; // { kind: 'folder' | 'file', rel, parent, name }
+let treeDrag = null; // { rel, parent, name }
 
 const parentOf = (rel) => rel.split('/').slice(0, -1).join('/');
 
@@ -328,16 +336,16 @@ function clearDropMarks() {
   }
 }
 
-// 同一層、同類型(檔案對檔案、資料夾對資料夾)的項目可互相拖曳換位。
-function enableTreeDrag(item, kind, rel) {
+// 同一層的項目(檔案、資料夾皆可)互相拖曳換位。
+function enableTreeDrag(item, rel) {
   item.draggable = true;
   item.addEventListener('dragstart', (e) => {
     // 搜尋過濾中看到的是跨資料夾的扁平清單,拖曳排序無意義
     if (els.filter.value.trim()) { e.preventDefault(); return; }
-    treeDrag = { kind, rel, parent: parentOf(rel), name: rel.split('/').pop() };
+    treeDrag = { rel, parent: parentOf(rel), name: rel.split('/').pop() };
     e.dataTransfer.effectAllowed = 'move';
   });
-  const accepts = () => treeDrag && treeDrag.kind === kind && treeDrag.rel !== rel && parentOf(rel) === treeDrag.parent;
+  const accepts = () => treeDrag && treeDrag.rel !== rel && parentOf(rel) === treeDrag.parent;
   item.addEventListener('dragover', (e) => {
     if (!accepts()) return;
     e.preventDefault();
@@ -359,21 +367,19 @@ function enableTreeDrag(item, kind, rel) {
   item.addEventListener('dragend', () => { treeDrag = null; clearDropMarks(); });
 }
 
-// 以畫面上目前的顯示順序為基準,把拖曳項插到目標前/後,存成該層的自訂順序。
-// 在其他排序模式下拖曳會自動切到「自訂排序」,當下的順序就此凍結為起點。
+// 以畫面上目前的顯示順序為基準(資料夾與檔案混在一起),把拖曳項插到
+// 目標前/後,存成該層的自訂順序。在其他排序模式下拖曳會自動切到
+// 「自訂排序」,當下的順序就此凍結為起點。
 function reorderSibling(drag, targetName, before) {
-  const selector = drag.kind === 'folder' ? '.tree-item.folder' : '.tree-item.file';
-  const dataKey = drag.kind === 'folder' ? 'folder' : 'file';
-  const names = [...els.tree.querySelectorAll(selector)]
-    .map((el) => el.dataset[dataKey])
+  const names = [...els.tree.querySelectorAll('.tree-item')]
+    .map((el) => el.dataset.folder || el.dataset.file)
     .filter((r) => r && parentOf(r) === drag.parent)
     .map((r) => r.split('/').pop())
     .filter((n) => n !== drag.name);
   const at = names.indexOf(targetName);
   if (at === -1) return;
   names.splice(before ? at : at + 1, 0, drag.name);
-  const saved = state.manualOrder[drag.parent] || (state.manualOrder[drag.parent] = {});
-  saved[drag.kind === 'folder' ? 'folders' : 'files'] = names;
+  state.manualOrder[drag.parent] = { order: names };
   localStorage.setItem('manualOrder', JSON.stringify(state.manualOrder));
   if (state.sort !== 'manual') {
     setSort('manual');
